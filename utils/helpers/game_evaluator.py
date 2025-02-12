@@ -74,4 +74,44 @@ class GameEvaluator:
         return score / len(legal_moves)
 
 
+    def get_best_move(self, state: tuple[dict, ...], prev_small_idx: int, player: Player) -> tuple[int, int] | None:
+        """
+        Finds the best move for a given state.
+
+        Arguments:
+            state: The state to evaluate.
+            prev_small_idx: The small index of the previous move made.
+            player: The player making the first move from the given state.
+
+        Returns:
+            The best move from the given state or None if there are no legal moves.
+        """
+
+        if self._instance.algorithm.__class__.__name__ == 'MiniMaxPlayer':
+            self._instance.algorithm.moves_made += 0.5
+
+            init_alpha = float('-inf')
+            init_beta = float('inf')
+
+            is_maximizing = True if player.sign == 'X' else False
+
+            self._instance.algorithm.update_target_depth()
+
+            run_algorithm = self._instance.algorithm.minimax_ab
+            algorithm_args = {'curr_depth' : 1, 'alpha' : init_alpha, 'beta' : init_beta,
+                              'is_maximizing' : not is_maximizing}
+
+        legal_moves = player.get_current_legal_moves(prev_small_idx)
+        best_move = None
+        best_score = float('-inf') if player.sign == 'X' else float('inf')
+
+        for big_idx, small_idx in legal_moves:
+            updated_state, _ = StateUpdater.update_state(state, big_idx, small_idx, player.sign)
+            score = run_algorithm(updated_state, small_idx, **algorithm_args)
+            if (score > best_score and player.sign == 'X') or (score<best_score and player.sign == 'O'):
+                best_move = (big_idx, small_idx)
+                best_score = score
+
+        return best_move
+
 __all__ = ['GameEvaluator']

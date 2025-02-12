@@ -18,7 +18,7 @@ TIME_BREAK = 0.085
 
 
 class MiniMaxPlayer(Player):
-    """ Class representing a player that uses the MiniMax algorithm. """
+    """ Class representing a player that uses the MiniMaxPlayer algorithm. """
 
     def __init__(self, target_depth: int | str = 'dynamic', use_randomness: bool = False):
         """

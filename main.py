@@ -24,14 +24,11 @@ if __name__ == '__main__':
     )
 
     game = GameUI(
-        MiniMaxPlayer(target_depth = 5, use_randomness = True),
-        MiniMaxPlayer(target_depth = 5),
         printing = False,
         show_evaluation = False,
-        wait_after_move = None,
+        wait_after_move = 300,
         opaque_on_board_completion = False,
-        light_theme = False,
-        use_eval_bar = True
+        light_theme = False
     )
 
     game.play()
