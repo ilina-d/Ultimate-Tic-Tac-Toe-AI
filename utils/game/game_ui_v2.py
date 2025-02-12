@@ -424,17 +424,19 @@ class GameUI:
         self.player2 = UserPlayer()
         self.player2.set_sign('O')
 
+        player_to_alter = None
+
         if self.selected_difficulty == 'easy':
             player_to_alter = RandomPlayer()
         elif self.selected_difficulty == 'normal':
             player_to_alter = MiniMaxPlayer(target_depth=3)
-        else:
+        elif self.selected_difficulty == 'hard':
             player_to_alter = MiniMaxPlayer(target_depth='dynamic')
 
         if self.selected_sign == 'X':
             self.player2 = player_to_alter
             self.player2.set_sign('O')
-        else:
+        elif self.selected_sign == 'O':
             self.player1 = player_to_alter
             self.player1.set_sign('X')
 
