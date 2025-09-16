@@ -429,7 +429,7 @@ class GameUI:
         if self.selected_difficulty == 'easy':
             player_to_alter = RandomPlayer()
         elif self.selected_difficulty == 'normal':
-            player_to_alter = MiniMaxPlayer(target_depth=3)
+            player_to_alter = MiniMaxPlayer(target_depth=5)
         elif self.selected_difficulty == 'hard':
             player_to_alter = MiniMaxPlayer(target_depth='dynamic')
 
@@ -450,8 +450,8 @@ class GameUI:
 
         on_main_menu = True
         while on_main_menu:
-            one_player_rect = pygame.Rect(140, 510, 190, 40)
-            two_player_rect = pygame.Rect(540, 510, 230, 40)
+            one_player_rect = pygame.Rect(140, 510, 190, 41)
+            two_player_rect = pygame.Rect(540, 510, 230, 41)
             # pygame.draw.rect(DISPLAY_SURF, COLOR_WHITE, one_player_rect)
             # pygame.draw.rect(DISPLAY_SURF, COLOR_WHITE, two_player_rect)
 
@@ -486,9 +486,9 @@ class GameUI:
                         x_rect = pygame.Rect(295, 225, 90, 90)
                         o_rect = pygame.Rect(505, 225, 90, 90)
 
-                        easy_rect = pygame.Rect(145, 510, 105, 45)
-                        normal_rect = pygame.Rect(360, 510, 185, 45)
-                        hard_rect = pygame.Rect(630, 510, 130, 45)
+                        easy_rect = pygame.Rect(145, 510, 110, 46)
+                        normal_rect = pygame.Rect(360, 510, 185, 46)
+                        hard_rect = pygame.Rect(630, 510, 130, 46)
 
                         back_rect = pygame.Rect(0, 0, 60, 60)
                         # pygame.draw.rect(DISPLAY_SURF, COLOR_WHITE, easy_rect)
