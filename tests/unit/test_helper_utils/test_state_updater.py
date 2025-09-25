@@ -42,6 +42,12 @@ class TestStateUpdater:
 
         (StateGenerator.generate(_3='XOXOXOOXO'), 3, 1, "O", "T", StateGenerator.generate(_0='--T------', _3='XOXOXOOXO'),
          "Move should playable on a completed board."),
+
+        (StateGenerator.generate(), 12, 7, "O", False, StateGenerator.generate(),
+         "Move with big_idx>9 should not be playable."),
+
+        (StateGenerator.generate(), 2, 21, "O", False, StateGenerator.generate(),
+         "Move with small_idx>9 should not be playable."),
     ))
     def test_update_state(self, state, big_idx, small_idx, sign, return_check_win, expected, error_msg):
         """ Tests whether state gets updated correctly. """
