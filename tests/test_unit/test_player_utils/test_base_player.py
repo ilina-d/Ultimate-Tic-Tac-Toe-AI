@@ -55,6 +55,8 @@ class TestBasePlayer:
         return copy.deepcopy(self.legal_moves[desc])
 
 
+    # Small amount of combinations, did them all
+
     @pytest.mark.parametrize("old_sign, new_sign, expected_sign, error_msg", (
         ("X", "X", "X", "Sign should remain unchanged."),
         ("X", "O", "O", "Sign should change from X to O."),
@@ -71,16 +73,40 @@ class TestBasePlayer:
 
         assert test_player.sign == expected_sign, error_msg
 
+
+    # BCC criteria:
+    # A: board gets completed after update
+    #   1 - true, 2 - false
+    # B: big_idx has valid value
+    #   1 - true, 2 - false
+    # C: small_idx is present in legal moves of board
+    #   1 - true, 2 - false
+    # D: board setup
+    #   1 - empty board, 2 - couple of moves made, 3 - couple of boards empty, 4 - couple of moves left, 5 - full board
+    # E: small_idx has valid value
+    #   1 - true, 2 - false
+    # happy path: A2 B1 C1 D1 E1
+
     @pytest.mark.parametrize("big_idx, small_idx, board_is_complete, initial_moves_setup, error_msg", (
+        # A2 B1 C1 D1 E1 (happy path) + extra
         (1, 1, False, "empty_board", "First move should be removed from legal_moves list (1/2)."),
         (5, 7, False, "empty_board", "First move should be removed from legal_moves list (2/2)."),
-        (12, 2, False, "empty_board", "Impossible move should not result in change on empty board (1/2)."),
-        (4, 81, False, "empty_board", "Impossible move should not result in change on empty board (2/2)."),
-        (8, 9, True, "full_board", "Board is full, legal moves should not be updated."),
-        (13, 21, True, "full_board", "Impossible move should not result in change on full board."),
+        # A1 B1 C1 D1 E1 infeasible -> A1 B1 C1 D4 E1
         (5, 9, True, "couple_moves_left", "Move that finishes board should render it unusable."),
-        (3, 7, False, "couple_boards_empty", "Board is full, legal moves should not be updated."),
-        (4, 4, False, "couple_moves_left", "Move on unfinished board that is occupied should not change legal moves."),
+        # A2 B2 C1 D1 E1 infeasible -> A2 B2 C2 D1 E1
+        (12, 2, False, "empty_board", "Impossible move should not result in change on empty board (1/2)."),
+        # A2 B1 C1 D1 E2 infeasible -> # A2 B1 C2 D1 E2
+        (4, 81, False, "empty_board", "Impossible move should not result in change on empty board (2/2)."),
+        # A2 B1 C2 D1 E1 infeasible -> A2 B1 C2 D2 E1
+        (1, 2, False, "couple_moves_made", "Cannot make move that has already been made on a small board."),
+        # A2 B1 C1 D2 E1
+        (1, 3, False, "couple_moves_made", "Move should be removed form board that has moves made on it."),
+        # A2 B1 C1 D3 E1
+        (1, 2, False, "couple_boards_empty", "Move should be made on empty board mid-game."),
+        # A2 B1 C1 D4 E1
+        (4, 8, False, "couple_moves_left", "Move on unfinished board that does not complete it should be made."),
+        # A2 B1 C1 D5 E1
+        (8, 9, True, "full_board", "Board is full, legal moves should not be updated."),
     ))
     def test_update_legal_moves(self, test_player, big_idx, small_idx, board_is_complete, initial_moves_setup, error_msg):
         """ Test whether update_legal_moves is working correctly. """
@@ -100,18 +126,34 @@ class TestBasePlayer:
 
         assert result == expected_legal_moves, error_msg
 
+
+    # BCC criteria:
+    # A: prev_small_idx value
+    #   1 - in range 1-9, 2 - out of range 1-9, 3 - None
+    # B: board setup
+    #   1 - empty board, 2 - couple of moves made, 3 - couple of boards empty, 4 - couple of moves left, 5 - full board
+    # happy path: A1 B2
+
     @pytest.mark.parametrize("prev_small_idx, initial_moves_setup, error_msg", (
-        (1, "empty_board", "Should return all 9 moves on empty board."),
-        (8, "full_board", "Finished game should have no remaining legal moves."),
-        (33, "empty_board", "Should have no legal moves for impossible previous move (1/2)."),
-        (11, "full_board", "Should have no legal moves for impossible previous move (2/2)."),
-        (4, "couple_moves_left", "Should show remaining moves (1/4)."),
-        (5, "couple_moves_left", "Should show remaining moves (2/4)."),
-        (4, "couple_moves_made", "Should show remaining moves (3/4)"),
-        (1, "couple_moves_made", "Should show remaining moves (4/4)"),
-        (None, "empty_board", "No previous small index should return all possible legal moves (1/3)."),
-        (None, "full_board", "No previous small index should return all possible legal moves (2/3)."),
+        # A1 B2 (happy path)
+        (4, "couple_moves_made", "Should show remaining moves on started board."),
+        # A2 B2 + extras
+        (28, "couple_moves_made", "Should have no legal moves for impossible previous move (1/3)."),
+        (33, "empty_board", "Should have no legal moves for impossible previous move (2/3)."),
+        (11, "full_board", "Should have no legal moves for impossible previous move (3/3)."),
+        # A3 B2 + extras
+        (None, "couple_moves_made", "No previous small index should return all possible legal moves (1/3)."),
+        (None, "empty_board", "No previous small index should return all possible legal moves (2/3)."),
         (None, "couple_moves_left", "No previous small index should return all possible legal moves (3/3)."),
+        # A1 B1
+        (1, "empty_board", "Should return all 9 moves on empty board (1/2)."),
+        # A1 B3
+        (8, "couple_boards_empty", "Should return all 9 moves on empty board (2/2)."),
+        # A1 B4 + extra
+        (4, "couple_moves_left", "Should show remaining moves (1/2)."),
+        (5, "couple_moves_left", "Should show remaining moves (2/2)."),
+        # A1 B5
+        (8, "full_board", "Finished game should have no remaining legal moves."),
     ))
     def test_get_current_legal_moves(self, test_player, prev_small_idx, initial_moves_setup, error_msg):
         """ Test whether get_current_legal_moves is working correctly. """
@@ -140,37 +182,45 @@ class TestBasePlayer:
         assert result == expected, error_msg
 
 
+    # BCC criteria:
+    # A: prev_small_idx value
+    #   1 - in range 1-9, 2 - out of range 1-9, 3 - None
+    # B: board setup
+    #   1 - empty board, 2 - couple of moves made, 3 - couple of boards empty, 4 - couple of moves left, 5 - full board
+    # happy path: A1 B2
+
     @pytest.mark.parametrize("state, prev_small_idx, initial_moves_setup, error_msg", (
-        (StateGenerator.generate(), 1, "empty_board", "Should return all 9 moves on empty board."),
-
-        (StateGenerator.generate(_0='XOXOXXTTX', _1='---XXX---', _2='OOO------', _3='---XXX---', _4='O--O--O--', _5='XXX------', _6='X---X---X', _7='XOOOXXXOO', _8='XOOOXXXOO', _9='XXX------'),
-            8, "full_board", "Finished game should have no remaining legal moves."),
-
-        (StateGenerator.generate(), 33, "empty_board", "Should have no legal moves for impossible previous move (1/2)."),
-
-        (StateGenerator.generate(_0='XOXOXXTTX', _1='---XXX---', _2='OOO------', _3='---XXX---', _4='O--O--O--', _5='XXX------', _6='X---X---X', _7='XOOOXXXOO', _8='XOOOXXXOO', _9='XXX------'),
-            11, "full_board", "Should have no legal moves for impossible previous move (2/2)."),
-
-        (StateGenerator.generate(_0='XO---X-T-', _1='---XXX---', _2='OOO------', _3='--XOX--OO', _4='XOXOXOO--', _5='XOXOXOOX-', _6='X---X---X', _7='-----XXOO', _8='XOOOXXXOO', _9='X-XOXOOXO'),
-            4, "couple_moves_left", "Should show remaining moves (1/4)."),
-
-        (StateGenerator.generate(_0='XO---X-T-', _1='---XXX---', _2='OOO------', _3='--XOX--OO', _4='XOXOXOO--', _5='XOXOXOOX-', _6='X---X---X', _7='-----XXOO', _8='XOOOXXXOO', _9='X-XOXOOXO'),
-            5, "couple_moves_left", "Should show remaining moves (2/4)."),
-
+        # A1 B2 (happy path)
         (StateGenerator.generate(_1='-O-------', _4='---X----O', _9='X--------'),
-
-            4, "couple_moves_made", "Should show remaining moves (3/4)"),
-
+            4, "couple_moves_made", "Should show remaining moves on started board."),
+        # A2 B2 + extras
         (StateGenerator.generate(_1='-O-------', _4='---X----O', _9='X--------'),
-            1, "couple_moves_made", "Should show remaining moves (4/4)"),
-
-        (StateGenerator.generate(), None, "empty_board", "No previous small index should return all possible legal moves (1/3)."),
-
+            28, "couple_moves_made", "Should have no legal moves for impossible previous move (1/3)."),
+        (StateGenerator.generate(),
+            33, "empty_board", "Should have no legal moves for impossible previous move (2/3)."),
         (StateGenerator.generate(_0='XOXOXXTTX', _1='---XXX---', _2='OOO------', _3='---XXX---', _4='O--O--O--', _5='XXX------', _6='X---X---X', _7='XOOOXXXOO', _8='XOOOXXXOO', _9='XXX------'),
-            None, "full_board", "No previous small index should return all possible legal moves (2/3)."),
-
+            11, "full_board", "Should have no legal moves for impossible previous move (3/3)."),
+        # A3 B2 + extras
+        (StateGenerator.generate(_1='-O-------', _4='---X----O', _9='X--------'),
+            None, "couple_moves_made", "No previous small index should return all possible legal moves (1/3)."),
+        (StateGenerator.generate(),
+            None, "empty_board", "No previous small index should return all possible legal moves (2/3)."),
         (StateGenerator.generate(_0='XO---X-T-', _1='---XXX---', _2='OOO------', _3='--XOX--OO', _4='XOXOXOO--', _5='XOXOXOOX-', _6='X---X---X', _7='-----XXOO', _8='XOOOXXXOO', _9='X-XOXOOXO'),
             None, "couple_moves_left", "No previous small index should return all possible legal moves (3/3)."),
+        # A1 B1
+        (StateGenerator.generate(),
+            1, "empty_board", "Should return all 9 moves on empty board (1/2)."),
+        # A1 B3
+        (StateGenerator.generate(_0='--X-O0X-X', _3='--X-OXO-X', _5='OO-OXXO--', _6='-O--O--O-', _7='------XXX', _9='XXX------'),
+            8, "couple_boards_empty", "Should return all 9 moves on empty board (2/2)."),
+        # A1 B4 + extra
+        (StateGenerator.generate(_0='XO---X-T-', _1='---XXX---', _2='OOO------', _3='--XOX--OO', _4='XOXOXOO--', _5='XOXOXOOX-', _6='X---X---X', _7='-----XXOO', _8='XOOOXXXOO', _9='X-XOXOOXO'),
+            4, "couple_moves_left", "Should show remaining moves (1/2)."),
+        (StateGenerator.generate(_0='XO---X-T-', _1='---XXX---', _2='OOO------', _3='--XOX--OO', _4='XOXOXOO--', _5='XOXOXOOX-', _6='X---X---X', _7='-----XXOO', _8='XOOOXXXOO', _9='X-XOXOOXO'),
+            5, "couple_moves_left", "Should show remaining moves (2/2)."),
+        # A1 B5
+        (StateGenerator.generate(_0='XOXOXXTTX', _1='---XXX---', _2='OOO------', _3='---XXX---', _4='O--O--O--', _5='XXX------', _6='X---X---X', _7='XOOOXXXOO', _8='XOOOXXXOO', _9='XXX------'),
+            8, "full_board", "Finished game should have no remaining legal moves."),
     ))
     def test_get_legal_moves_for_state(self, test_player, state, prev_small_idx, initial_moves_setup, error_msg):
         """ Test whether get_legal_moves_for_state is working correctly. """
