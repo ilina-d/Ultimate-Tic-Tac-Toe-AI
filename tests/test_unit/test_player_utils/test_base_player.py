@@ -2,7 +2,7 @@ import copy
 import pytest
 
 from utils.players.base_player import Player
-from tests.state_generator import StateGenerator
+from tests.sample_generator import SampleGenerator
 
 class TestBasePlayer:
     """ Class to test the functionality of the Player class. """
@@ -21,38 +21,37 @@ class TestBasePlayer:
     @classmethod
     def test_mock_legal_moves(cls):
         """ Create a dictionary of multiple legal move scenarios for testing. """
-        cls.legal_moves = dict()
 
-        cls.legal_moves["empty_board"] = [[i for i in range(1, 10)] for _ in range(1, 10)]
-        cls.legal_moves["empty_board"].insert(0, [])
-
-        cls.legal_moves["full_board"] = [[] for _ in range(1, 11)]
-
-        cls.legal_moves["couple_boards_empty"] = [[] for _ in range(1, 7)]
-        cls.legal_moves["couple_boards_empty"].insert(1, [i for i in range(1, 10)])
-        cls.legal_moves["couple_boards_empty"].insert(2, [i for i in range(1, 10)])
-        cls.legal_moves["couple_boards_empty"].insert(4, [i for i in range(1, 10)])
-        cls.legal_moves["couple_boards_empty"].insert(8, [i for i in range(1, 10)])
-
-        cls.legal_moves["couple_moves_left"] = [[] for _ in range(1, 6)]
-        cls.legal_moves["couple_moves_left"].insert(3, [1, 2, 7, 6])
-        cls.legal_moves["couple_moves_left"].insert(4, [8, 9])
-        cls.legal_moves["couple_moves_left"].insert(5, [9, ])
-        cls.legal_moves["couple_moves_left"].insert(7, [1, 2, 3, 4, 5])
-        cls.legal_moves["couple_moves_left"].insert(9, [2, ])
-
-        cls.legal_moves["couple_moves_made"] = [[i for i in range(1, 10)] for _ in range(1, 10)]
-        cls.legal_moves["couple_moves_made"].insert(0, [])
-        cls.legal_moves["couple_moves_made"][4].remove(4)
-        cls.legal_moves["couple_moves_made"][4].remove(9)
-        cls.legal_moves["couple_moves_made"][9].remove(1)
-        cls.legal_moves["couple_moves_made"][1].remove(2)
+        cls.legal_moves = SampleGenerator.get_sample_legal_moves()
+        cls.states = SampleGenerator.get_sample_states()
 
 
     def test_get_legal_moves(self, desc):
-        """ Get legal moves mock for specific test scenario."""
+        """
+        Get legal moves mock for specific test scenario.
+
+        Arguments:
+            desc: descriptive name of the test scenario.
+
+        Returns:
+            Deepcopy of the legal moves for the given test scenario.
+        """
 
         return copy.deepcopy(self.legal_moves[desc])
+
+
+    def test_get_state(self, desc):
+        """
+        Get state mock for specific test scenario.
+
+        Arguments:
+            desc: descriptive name of the test scenario.
+
+        Returns:
+            Deepcopy of the state for the given test scenario.
+        """
+
+        return copy.deepcopy(self.states[desc])
 
 
     # Small amount of combinations, did them all
@@ -189,43 +188,32 @@ class TestBasePlayer:
     #   1 - empty board, 2 - couple of moves made, 3 - couple of boards empty, 4 - couple of moves left, 5 - full board
     # happy path: A1 B2
 
-    @pytest.mark.parametrize("state, prev_small_idx, initial_moves_setup, error_msg", (
+    @pytest.mark.parametrize("prev_small_idx, initial_moves_setup, error_msg", (
         # A1 B2 (happy path)
-        (StateGenerator.generate(_1='-O-------', _4='---X----O', _9='X--------'),
-            4, "couple_moves_made", "Should show remaining moves on started board."),
+        (4, "couple_moves_made", "Should show remaining moves on started board."),
         # A2 B2 + extras
-        (StateGenerator.generate(_1='-O-------', _4='---X----O', _9='X--------'),
-            28, "couple_moves_made", "Should have no legal moves for impossible previous move (1/3)."),
-        (StateGenerator.generate(),
-            33, "empty_board", "Should have no legal moves for impossible previous move (2/3)."),
-        (StateGenerator.generate(_0='XOXOXXTTX', _1='---XXX---', _2='OOO------', _3='---XXX---', _4='O--O--O--', _5='XXX------', _6='X---X---X', _7='XOOOXXXOO', _8='XOOOXXXOO', _9='XXX------'),
-            11, "full_board", "Should have no legal moves for impossible previous move (3/3)."),
+        (28, "couple_moves_made", "Should have no legal moves for impossible previous move (1/3)."),
+        (33, "empty_board", "Should have no legal moves for impossible previous move (2/3)."),
+        (11, "full_board", "Should have no legal moves for impossible previous move (3/3)."),
         # A3 B2 + extras
-        (StateGenerator.generate(_1='-O-------', _4='---X----O', _9='X--------'),
-            None, "couple_moves_made", "No previous small index should return all possible legal moves (1/3)."),
-        (StateGenerator.generate(),
-            None, "empty_board", "No previous small index should return all possible legal moves (2/3)."),
-        (StateGenerator.generate(_0='XO---X-T-', _1='---XXX---', _2='OOO------', _3='--XOX--OO', _4='XOXOXOO--', _5='XOXOXOOX-', _6='X---X---X', _7='-----XXOO', _8='XOOOXXXOO', _9='X-XOXOOXO'),
-            None, "couple_moves_left", "No previous small index should return all possible legal moves (3/3)."),
+        (None, "couple_moves_made", "No previous small index should return all possible legal moves (1/3)."),
+        (None, "empty_board", "No previous small index should return all possible legal moves (2/3)."),
+        (None, "couple_moves_left", "No previous small index should return all possible legal moves (3/3)."),
         # A1 B1
-        (StateGenerator.generate(),
-            1, "empty_board", "Should return all 9 moves on empty board (1/2)."),
+        (1, "empty_board", "Should return all 9 moves on empty board (1/2)."),
         # A1 B3
-        (StateGenerator.generate(_0='--X-O0X-X', _3='--X-OXO-X', _5='OO-OXXO--', _6='-O--O--O-', _7='------XXX', _9='XXX------'),
-            8, "couple_boards_empty", "Should return all 9 moves on empty board (2/2)."),
+        (8, "couple_boards_empty", "Should return all 9 moves on empty board (2/2)."),
         # A1 B4 + extra
-        (StateGenerator.generate(_0='XO---X-T-', _1='---XXX---', _2='OOO------', _3='--XOX--OO', _4='XOXOXOO--', _5='XOXOXOOX-', _6='X---X---X', _7='-----XXOO', _8='XOOOXXXOO', _9='X-XOXOOXO'),
-            4, "couple_moves_left", "Should show remaining moves (1/2)."),
-        (StateGenerator.generate(_0='XO---X-T-', _1='---XXX---', _2='OOO------', _3='--XOX--OO', _4='XOXOXOO--', _5='XOXOXOOX-', _6='X---X---X', _7='-----XXOO', _8='XOOOXXXOO', _9='X-XOXOOXO'),
-            5, "couple_moves_left", "Should show remaining moves (2/2)."),
+        (4, "couple_moves_left", "Should show remaining moves (1/2)."),
+        (5, "couple_moves_left", "Should show remaining moves (2/2)."),
         # A1 B5
-        (StateGenerator.generate(_0='XOXOXXTTX', _1='---XXX---', _2='OOO------', _3='---XXX---', _4='O--O--O--', _5='XXX------', _6='X---X---X', _7='XOOOXXXOO', _8='XOOOXXXOO', _9='XXX------'),
-            8, "full_board", "Finished game should have no remaining legal moves."),
+        (8, "full_board", "Finished game should have no remaining legal moves."),
     ))
-    def test_get_legal_moves_for_state(self, test_player, state, prev_small_idx, initial_moves_setup, error_msg):
+    def test_get_legal_moves_for_state(self, test_player, prev_small_idx, initial_moves_setup, error_msg):
         """ Test whether get_legal_moves_for_state is working correctly. """
 
         legal_moves = self.test_get_legal_moves(initial_moves_setup)
+        state = self.test_get_state(initial_moves_setup)
 
         moves = legal_moves[prev_small_idx] if prev_small_idx in range(1, 10) else []
 

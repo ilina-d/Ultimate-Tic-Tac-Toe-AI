@@ -20,7 +20,7 @@ if __name__ == '__main__':
     # simulator.start()
 
     GameEvaluator(
-        algorithm = MiniMaxPlayer(target_depth = 5, use_randomness = True)
+        algorithm = MiniMaxPlayer(target_depth = "dynamic", use_randomness = True)
     )
 
     game = GameUI(
