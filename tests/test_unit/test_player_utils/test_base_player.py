@@ -19,8 +19,8 @@ class TestBasePlayer:
 
 
     @classmethod
-    def test_mock_legal_moves(cls):
-        """ Create a dictionary of multiple legal move scenarios for testing. """
+    def test_mock_state_and_legal_moves(cls):
+        """ Create dictionaries of multiple scenarios for testing. """
 
         cls.legal_moves = SampleGenerator.get_sample_legal_moves()
         cls.states = SampleGenerator.get_sample_states()
