@@ -1,11 +1,11 @@
 import pytest
-import pygame
 import time
-from unittest.mock import patch
-
 from utils.game.game_ui_v2 import GameUI
-from utils.players import UserPlayer, MiniMaxPlayer, RandomPlayer
+from utils.players import UserPlayer, MiniMaxPlayer, RandomPlayer, Player
 from utils.game.game_ui_assets import *
+from utils.helpers import StateUpdater
+
+# TODO: Whats the point of the logger, does it have to exist?
 
 
 class VisualTestReporter:
@@ -23,7 +23,6 @@ class VisualTestReporter:
         self.start_time = time.time()
         self.wait_time = wait_time
 
-
     def log_step(self, node_id: int, description: str, action: str = ""):
         """ Log a test step with visual formatting. """
 
@@ -37,14 +36,12 @@ class VisualTestReporter:
             print(f"Action: {action}")
         print("=" * 80 + "\n")
 
-
     def log_assertion(self, condition: bool, message: str):
         """ Log assertion results. """
 
         status = "PASS" if condition else "FAIL"
         print(f"  [{status}] {message}")
         assert condition, f"Assertion failed: {message}"
-
 
     def wait(self, specific_time: float = None):
         """ Wait for the configured or the given time. """
@@ -75,7 +72,12 @@ class TestViewTransitions:
     def manage_pygame_window(self):
         """Manage pygame window lifecycle - close after each test."""
 
+        Player.reset_legal_moves()
+
         yield
+
+        Player.reset_legal_moves()
+
         if pygame.display.get_surface() is not None:
             self.cleanup_pygame_state()
             time.sleep(0.4)
@@ -90,18 +92,19 @@ class TestViewTransitions:
         pygame.event.set_blocked(None)
         pygame.event.set_allowed([pygame.QUIT, pygame.MOUSEBUTTONUP])
 
-        with patch.object(GameUI, 'draw_board'):
-            game = GameUI(
-                player1=UserPlayer(),
-                player2=UserPlayer(),
-                printing=False,
-                wait_after_move=100,
-                show_evaluation=False,
-                measure_thinking_time=False,
-                opaque_on_board_completion=True,
-                light_theme=False,
-                use_eval_bar=False
-            )
+        Player.reset_legal_moves()
+
+        game = GameUI(
+            player1=UserPlayer(),
+            player2=UserPlayer(),
+            printing=False,
+            wait_after_move=100,
+            show_evaluation=False,
+            measure_thinking_time=False,
+            opaque_on_board_completion=True,
+            light_theme=False,
+            use_eval_bar=False
+        )
 
         DISPLAY_SURF = pygame.display.get_surface()
         DISPLAY_SURF.fill((0, 0, 0))
@@ -153,8 +156,8 @@ class TestViewTransitions:
         top = box_x * SQUARE_SIZE + Y_MARGIN
         return (left + SQUARE_SIZE // 2, top + SQUARE_SIZE // 2)
 
-    def simulate_click(self, x: int, y: int, reporter: VisualTestReporter, highlight_color: tuple = (255, 0, 0)):
-        """Simulate a mouse click with visual feedback."""
+    def simulate_click_visual(self, x: int, y: int, reporter: VisualTestReporter, highlight_color: tuple = (255, 0, 0)):
+        """Simulate a mouse click with visual feedback (visual only, no event posting)."""
 
         DISPLAY_SURF = pygame.display.get_surface()
 
@@ -169,19 +172,10 @@ class TestViewTransitions:
         DISPLAY_SURF.blit(saved_area, area_rect)
         pygame.display.update(area_rect)
 
-        pygame.event.clear()
-
-        event = pygame.event.Event(pygame.MOUSEBUTTONUP, {'pos': (x, y), 'button': 1})
-        pygame.event.post(event)
-
-        pygame.event.pump()
-
-        pygame.event.clear()
-
         reporter.wait(0.1)
 
     def simulate_hint_click(self, game_ui: GameUI, player: UserPlayer, reporter: VisualTestReporter):
-        """Simulate clicking the hint button and trigger hint logic."""
+        """Simulate clicking the hint button and trigger hint logic using proper GameUI methods."""
 
         DISPLAY_SURF = pygame.display.get_surface()
         coords = self.get_button_coords()
@@ -190,7 +184,6 @@ class TestViewTransitions:
         button_rect = pygame.Rect(hint_x - 30, hint_y - 27, 60, 54)
 
         saved_area = DISPLAY_SURF.subsurface(button_rect).copy()
-
         DISPLAY_SURF.blit(button_hint_hover, (hint_x - 30, hint_y - 27))
         pygame.display.update(button_rect)
         reporter.wait(0.2)
@@ -198,9 +191,13 @@ class TestViewTransitions:
         DISPLAY_SURF.blit(saved_area, button_rect)
         pygame.display.update(button_rect)
 
-        with patch('utils.helpers.game_evaluator.GameEvaluator.get_best_move') as mock:
-            mock.return_value = (5, 5)
-            b_idx, s_idx = 5, 5
+        if game_ui.game_evaluator._instance.algorithm is None:
+            from utils.players import MiniMaxPlayer
+            game_ui.game_evaluator._instance.algorithm = MiniMaxPlayer(target_depth=3)
+
+        b_idx, s_idx = game_ui.game_evaluator.get_best_move(game_ui.state, game_ui.prev_small_idx, player)
+
+        if b_idx is not None and s_idx is not None:
             box_x, box_y = idx_to_rc[b_idx][s_idx]
             game_ui.hinted_move = (box_x, box_y)
             game_ui.draw_sign_on_box(box_x, box_y, player.sign)
@@ -209,16 +206,22 @@ class TestViewTransitions:
             reporter.wait()
 
     def click_reset_button(self, game_ui: GameUI, reporter: VisualTestReporter):
-        """Click the reset button with hover effect."""
+        """Click the reset button with hover effect using proper GameUI methods."""
 
         DISPLAY_SURF = pygame.display.get_surface()
-        t, l = self.get_button_coords()['reset']
+        coords = self.get_button_coords()
+        t = Y_MARGIN + 2 * SQUARE_SIZE
+        l = WINDOW_WIDTH - X_MARGIN + 1 * SQUARE_SIZE
 
         DISPLAY_SURF.blit(button_reset_hover, (l, t + 3 * SQUARE_SIZE))
         pygame.display.update()
         reporter.wait()
 
+        game_ui.player1.reset_legal_moves()
+        game_ui.player2.reset_legal_moves()
         game_ui.reset_state()
+        game_ui.hinted_move = None
+
         game_ui.draw_board()
         game_ui.draw_buttons()
         pygame.display.update()
@@ -228,15 +231,20 @@ class TestViewTransitions:
         """Click the 'to title' button with hover effect."""
 
         DISPLAY_SURF = pygame.display.get_surface()
-        t, l = self.get_button_coords()['to_title']
+        t = Y_MARGIN + 2 * SQUARE_SIZE
+        l = WINDOW_WIDTH - X_MARGIN + 1 * SQUARE_SIZE
 
         DISPLAY_SURF.blit(button_to_title_hover, (l, t + 4 * SQUARE_SIZE))
         pygame.display.update()
         reporter.wait()
 
+        game_ui.player1.reset_legal_moves()
+        game_ui.player2.reset_legal_moves()
         game_ui.reset_state()
         game_ui.selected_sign = None
         game_ui.selected_difficulty = None
+        game_ui.hinted_move = None
+        game_ui.use_eval_bar = False
 
     def show_title_screen(self, game_ui: GameUI, reporter: VisualTestReporter, highlight_button: str = None):
         """
@@ -364,7 +372,6 @@ class TestViewTransitions:
         """
 
         DISPLAY_SURF = pygame.display.get_surface()
-        coords = self.get_button_coords()
 
         pygame.draw.rect(DISPLAY_SURF, BG_COLOR, pygame.Rect(0, 0, 60, 60))
         DISPLAY_SURF.blit(button_back_hover, (0, 0))
@@ -397,34 +404,66 @@ class TestViewTransitions:
 
     def make_board_move(self, game_ui: GameUI, big_idx: int, small_idx: int,
                         sign: str, reporter: VisualTestReporter):
-        """Make a move on the game board."""
+        """
+        Make a move on the game board using proper GameUI methods.
 
-        from utils.helpers import StateUpdater
+        Arguments:
+            game_ui: The game UI instance
+            big_idx: Big board index
+            small_idx: Small board index
+            sign: Player sign ('X' or 'O')
+            reporter: Visual test reporter
+        """
+
+        player = game_ui.player1 if sign == 'X' else game_ui.player2
 
         coords = self.get_board_position_coords(big_idx, small_idx)
-        self.simulate_click(coords[0], coords[1], reporter, (0, 255, 0))
-
-        old_state = game_ui.state
-        game_ui.state, board_complete = StateUpdater.update_state(
-            game_ui.state, big_idx, small_idx, sign
-        )
-        game_ui.prev_small_idx = small_idx
+        self.simulate_click_visual(coords[0], coords[1], reporter, (0, 255, 0))
 
         box_x, box_y = idx_to_rc[big_idx][small_idx]
+
+        state, board_is_complete = StateUpdater.update_state(game_ui.state, big_idx, small_idx, sign)
+
         if game_ui.hinted_move:
             game_ui.cover_box(game_ui.hinted_move[0], game_ui.hinted_move[1])
             game_ui.hinted_move = None
+
         game_ui.draw_sign_on_box(box_x, box_y, sign)
+
+        for i in set(i for i, _ in player.get_current_legal_moves(game_ui.prev_small_idx)):
+            game_ui.draw_subgrid_at_board(i, SMALL_LINE_COLOR)
+
+        game_ui.state = state
+
+        if game_ui.state[0]['display'][big_idx] != '-':
+            game_ui.draw_sign_on_big_board(big_idx, game_ui.state[0]['display'][big_idx])
+
+        if game_ui.state[0]['display'][small_idx] != '-':
+            game_ui.prev_small_idx = None
+        else:
+            game_ui.prev_small_idx = small_idx
+
+        game_ui.prev_move_made = (big_idx, small_idx)
+
+        player.update_legal_moves(big_idx, small_idx, board_is_complete=board_is_complete)
+
+        next_player = game_ui.player2 if sign == 'X' else game_ui.player1
+        opposite_color = OPPOSITE_SIGN_COLORS[sign]
+
+        if game_ui.prev_small_idx is not None:
+            game_ui.draw_subgrid_at_board(game_ui.prev_small_idx, opposite_color)
+        else:
+            for i in set(i for i, _ in next_player.get_current_legal_moves(game_ui.prev_small_idx)):
+                game_ui.draw_subgrid_at_board(i, opposite_color)
+
         pygame.display.update()
         reporter.wait()
-
 
     def test_path_1(self, game_ui):
         """
         Path 1: [1,3,8,10,8,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
-        coords = self.get_button_coords()
 
         reporter.log_step(1, "Start Menu", "Display title screen")
         self.show_title_screen(game_ui, reporter)
@@ -475,13 +514,11 @@ class TestViewTransitions:
         reporter.log_step(12, "End of test", "Test completed")
         print(f"\nPATH 1 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-
     def test_path_2(self, game_ui):
         """
         Path 2: [1,2,4,6,7,8,11,8,11,8,10,8,11,12]
         """
         reporter = VisualTestReporter()
-        coords = self.get_button_coords()
 
         reporter.log_step(1, "Start Menu", "Display title screen")
         self.show_title_screen(game_ui, reporter)
@@ -532,13 +569,11 @@ class TestViewTransitions:
         reporter.log_step(12, "End of test", "Test completed")
         print(f"\nPATH 2 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-
     def test_path_3(self, game_ui):
         """
         Path 3: [1,2,4,6,7,8,9,8,9,8,10,8,9,8,11,8,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
-        coords = self.get_button_coords()
 
         reporter.log_step(1, "Start Menu", "Display title screen")
         self.show_title_screen(game_ui, reporter)
@@ -576,7 +611,7 @@ class TestViewTransitions:
         reporter.wait()
 
         reporter.log_step(10, "Click hint", "Request hint")
-        self.simulate_hint_click(game_ui, game_ui.player2, reporter)
+        self.simulate_hint_click(game_ui, game_ui.player1, reporter)
 
         reporter.log_step(8, "Main Game Page", "After hint")
         reporter.wait()
@@ -595,8 +630,6 @@ class TestViewTransitions:
 
         reporter.log_step(5, "Click to title", "Return to menu")
         self.click_to_title_button(game_ui, reporter)
-        game_ui.selected_sign = None
-        game_ui.selected_difficulty = None
         self.show_title_screen(game_ui, reporter)
 
         reporter.log_step(1, "Start Menu", "Back at menu")
@@ -619,13 +652,11 @@ class TestViewTransitions:
         reporter.log_step(12, "End of test", "Test completed")
         print(f"\nPATH 3 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-
     def test_path_4(self, game_ui):
         """
         Path 4: [1,2,4,6,4,6,7,8,5,1,3,8,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
-        coords = self.get_button_coords()
 
         reporter.log_step(1, "Start Menu", "Display title screen")
         self.show_title_screen(game_ui, reporter)
@@ -658,8 +689,6 @@ class TestViewTransitions:
 
         reporter.log_step(5, "Click to title", "Return to menu")
         self.click_to_title_button(game_ui, reporter)
-        game_ui.selected_sign = None
-        game_ui.selected_difficulty = None
         self.show_title_screen(game_ui, reporter)
 
         reporter.log_step(1, "Start Menu", "Back at menu 1")
@@ -700,48 +729,35 @@ class TestViewTransitions:
         reporter.log_step(12, "End of test", "Test completed")
         print(f"\nPATH 4 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-
     def test_path_5(self, game_ui):
         """
         Path 5: [1,2,4,6,5,1,2,5,1,2,4,5,1,2,4,6,4,6,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
-        coords = self.get_button_coords()
 
         reporter.log_step(1, "Start Menu", "Display title screen")
         self.show_title_screen(game_ui, reporter)
 
         reporter.log_step(2, "Click '1 Player'", "Go to settings (cycle 1)")
-        DISPLAY_SURF = pygame.display.get_surface()
-        DISPLAY_SURF.blit(choose_image, (0, 0))
-        DISPLAY_SURF.blit(button_back, (0, 0))
-        pygame.display.update()
-        reporter.wait()
+        self.click_menu_button(game_ui, '1player', reporter)
+        self.show_settings_menu(game_ui, reporter)
 
         reporter.log_step(4, "Select X", "Choose X (cycle 1)")
-        game_ui.selected_sign = 'X'
-        DISPLAY_SURF.blit(choose_image_top_x, (0, 0))
-        pygame.draw.rect(DISPLAY_SURF, BG_COLOR, pygame.Rect(0, 0, 60, 60))
-        DISPLAY_SURF.blit(button_back, (0, 0))
-        pygame.display.update()
-        reporter.wait()
+        self.select_sign(game_ui, 'X', reporter)
 
         reporter.log_step(6, "Settings with one option", "X selected (cycle 1)")
         reporter.wait()
 
         reporter.log_step(5, "Click back", "Return to menu (cycle 1)")
         self.click_back_button(game_ui, reporter)
-        game_ui.selected_sign = None
         self.show_title_screen(game_ui, reporter)
 
         reporter.log_step(1, "Start Menu", "Back at menu (cycle 2)")
         reporter.wait()
 
         reporter.log_step(2, "Click '1 Player'", "Go to settings (cycle 2)")
-        DISPLAY_SURF.blit(choose_image, (0, 0))
-        DISPLAY_SURF.blit(button_back, (0, 0))
-        pygame.display.update()
-        reporter.wait()
+        self.click_menu_button(game_ui, '1player', reporter)
+        self.show_settings_menu(game_ui, reporter)
 
         reporter.log_step(5, "Click back", "Return immediately (cycle 2)")
         self.click_back_button(game_ui, reporter)
@@ -751,58 +767,37 @@ class TestViewTransitions:
         reporter.wait()
 
         reporter.log_step(2, "Click '1 Player'", "Go to settings (cycle 3)")
-        DISPLAY_SURF.blit(choose_image, (0, 0))
-        DISPLAY_SURF.blit(button_back, (0, 0))
-        pygame.display.update()
-        reporter.wait()
+        self.click_menu_button(game_ui, '1player', reporter)
+        self.show_settings_menu(game_ui, reporter)
 
         reporter.log_step(4, "Select O", "Choose O (cycle 3)")
-        game_ui.selected_sign = 'O'
-        DISPLAY_SURF.blit(choose_image_top_o, (0, 0))
-        pygame.draw.rect(DISPLAY_SURF, BG_COLOR, pygame.Rect(0, 0, 60, 60))
-        DISPLAY_SURF.blit(button_back, (0, 0))
-        pygame.display.update()
-        reporter.wait()
+        self.select_sign(game_ui, 'O', reporter)
 
         reporter.log_step(5, "Click back", "Return to menu (cycle 3)")
         self.click_back_button(game_ui, reporter)
-        game_ui.selected_sign = None
         self.show_title_screen(game_ui, reporter)
 
         reporter.log_step(1, "Start Menu", "Back at menu (cycle 4)")
         reporter.wait()
 
         reporter.log_step(2, "Click '1 Player'", "Go to settings (cycle 4)")
-        DISPLAY_SURF.blit(choose_image, (0, 0))
-        DISPLAY_SURF.blit(button_back, (0, 0))
-        pygame.display.update()
-        reporter.wait()
+        self.click_menu_button(game_ui, '1player', reporter)
+        self.show_settings_menu(game_ui, reporter)
 
         reporter.log_step(4, "Select X", "Choose X (cycle 4)")
-        game_ui.selected_sign = 'X'
-        DISPLAY_SURF.blit(choose_image_top_x, (0, 0))
-        pygame.draw.rect(DISPLAY_SURF, BG_COLOR, pygame.Rect(0, 0, 60, 60))
-        DISPLAY_SURF.blit(button_back, (0, 0))
-        pygame.display.update()
-        reporter.wait()
+        self.select_sign(game_ui, 'X', reporter)
 
         reporter.log_step(6, "Settings with one option", "X selected (cycle 4)")
         reporter.wait()
 
         reporter.log_step(4, "Select O", "Change to O (cycle 4)")
-        game_ui.selected_sign = 'O'
-        DISPLAY_SURF.blit(choose_image_top_o, (0, 0))
-        pygame.draw.rect(DISPLAY_SURF, BG_COLOR, pygame.Rect(0, 0, 60, 60))
-        DISPLAY_SURF.blit(button_back, (0, 0))
-        pygame.display.update()
-        reporter.wait()
+        self.select_sign(game_ui, 'O', reporter)
 
         reporter.log_step(6, "Settings with one option", "O selected (cycle 4)")
         reporter.wait()
 
         reporter.log_step(5, "Click back", "Return to menu (cycle 4)")
         self.click_back_button(game_ui, reporter)
-        game_ui.selected_sign = None
         self.show_title_screen(game_ui, reporter)
 
         reporter.log_step(1, "Start Menu", "Back at menu (final)")
@@ -824,7 +819,6 @@ class TestViewTransitions:
 
         reporter.log_step(12, "End of test", "Test completed")
         print(f"\nPATH 5 COMPLETED in {time.time() - reporter.start_time:.2f}s")
-
 
     def test_path_6(self, game_ui):
         """
@@ -857,13 +851,11 @@ class TestViewTransitions:
         reporter.log_step(12, "End of test", "Test completed")
         print(f"\nPATH 6 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-
     def test_path_7(self, game_ui):
         """
         Path 7: [1,2,4,6,7,8,10,8,10,8,11,8,9,8,11,12]
         """
         reporter = VisualTestReporter()
-        coords = self.get_button_coords()
 
         reporter.log_step(1, "Start Menu", "Display title screen")
         self.show_title_screen(game_ui, reporter)
@@ -919,13 +911,11 @@ class TestViewTransitions:
         reporter.log_step(12, "End of test", "Test completed")
         print(f"\nPATH 7 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-
     def test_path_8(self, game_ui):
         """
         Path 8: [1,2,4,6,4,5,1,3,8,9,8,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
-        coords = self.get_button_coords()
 
         reporter.log_step(1, "Start Menu", "Display title screen")
         self.show_title_screen(game_ui, reporter)
