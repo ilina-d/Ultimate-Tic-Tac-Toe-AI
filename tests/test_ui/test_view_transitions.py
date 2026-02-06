@@ -1,55 +1,11 @@
-import pytest
 import time
+
+from .ui_test_utils import BaseUITest, VisualTestReporter, GameThread
 from utils.game.game_ui_v2 import GameUI
-from utils.players import UserPlayer, MiniMaxPlayer, RandomPlayer, Player
-from utils.game.game_ui_assets import *
-from utils.helpers import StateUpdater
-
-# TODO: Whats the point of the logger, does it have to exist?
+from utils.players import UserPlayer
 
 
-class VisualTestReporter:
-    """ Helper class to provide visual feedback during test execution. """
-
-    def __init__(self, wait_time: float = 0.3):
-        """
-        Initialize the reporter.
-
-        Arguments:
-            wait_time: Time to wait between actions in seconds. Defaults to 0.3 seconds.
-        """
-
-        self.step_count = 0
-        self.start_time = time.time()
-        self.wait_time = wait_time
-
-    def log_step(self, node_id: int, description: str, action: str = ""):
-        """ Log a test step with visual formatting. """
-
-        self.step_count += 1
-        elapsed = time.time() - self.start_time
-
-        print("\n" + "=" * 80)
-        print(f"STEP {self.step_count} | Node {node_id} | Time: {elapsed:.2f}s")
-        print(f"Description: {description}")
-        if action:
-            print(f"Action: {action}")
-        print("=" * 80 + "\n")
-
-    def log_assertion(self, condition: bool, message: str):
-        """ Log assertion results. """
-
-        status = "PASS" if condition else "FAIL"
-        print(f"  [{status}] {message}")
-        assert condition, f"Assertion failed: {message}"
-
-    def wait(self, specific_time: float = None):
-        """ Wait for the configured or the given time. """
-
-        time.sleep(self.wait_time if specific_time is None else specific_time)
-
-
-class TestViewTransitions:
+class TestViewTransitions(BaseUITest):
     """
     Edge-Pair Coverage Tests for View Transitions
 
@@ -68,916 +24,914 @@ class TestViewTransitions:
         12 - End of test.
     """
 
-    @pytest.fixture(autouse=True)
-    def manage_pygame_window(self):
-        """Manage pygame window lifecycle - close after each test."""
-
-        Player.reset_legal_moves()
-
-        yield
-
-        Player.reset_legal_moves()
-
-        if pygame.display.get_surface() is not None:
-            self.cleanup_pygame_state()
-            time.sleep(0.4)
-
-    @pytest.fixture
-    def game_ui(self):
-        """Fixture to create GameUI instance."""
-
-        pygame.init()
-
-        pygame.event.clear()
-        pygame.event.set_blocked(None)
-        pygame.event.set_allowed([pygame.QUIT, pygame.MOUSEBUTTONUP])
-
-        Player.reset_legal_moves()
-
-        game = GameUI(
-            player1=UserPlayer(),
-            player2=UserPlayer(),
-            printing=False,
-            wait_after_move=100,
-            show_evaluation=False,
-            measure_thinking_time=False,
-            opaque_on_board_completion=True,
-            light_theme=False,
-            use_eval_bar=False
+    def wait_for_title_screen(self, game_ui: GameUI, reporter: VisualTestReporter,
+                              timeout: float = 5.0) -> bool:
+        """Wait until the title screen is being displayed."""
+        return self.wait_for_state_condition(
+            game_ui,
+            lambda gui: gui.selected_sign is None and gui.selected_difficulty is None,
+            "Title screen displayed",
+            timeout=timeout
         )
 
-        DISPLAY_SURF = pygame.display.get_surface()
-        DISPLAY_SURF.fill((0, 0, 0))
-        pygame.display.flip()
+    def wait_for_game_board_ready(self, game_ui: GameUI, reporter: VisualTestReporter,
+                                  timeout: float = 5.0) -> bool:
+        """Wait until the game board is ready (state is reset and board is drawn)."""
+        return self.wait_for_state_condition(
+            game_ui,
+            lambda gui: gui.state is not None and gui.state[0]['display'][1] == '-',
+            "Game board ready",
+            timeout=timeout
+        )
 
-        pygame.event.clear()
-        pygame.event.pump()
-
-        return game
-
-    def cleanup_pygame_state(self):
-        """Aggressively clean up pygame state between operations."""
-
-        for _ in range(3):
-            pygame.event.clear()
-            pygame.event.pump()
-
-        time.sleep(0.05)
-
-    def get_button_coords(self):
-        """Get all button coordinates as a dictionary."""
-
-        coords = {}
-
-        coords['one_player'] = (235, 530)
-        coords['two_player'] = (655, 530)
-
-        coords['choose_x'] = (340, 270)
-        coords['choose_o'] = (550, 270)
-        coords['choose_easy'] = (200, 533)
-        coords['choose_normal'] = (452, 533)
-        coords['choose_hard'] = (695, 533)
-
-        t = Y_MARGIN + 2 * SQUARE_SIZE
-        l = WINDOW_WIDTH - X_MARGIN + 1 * SQUARE_SIZE
-        coords['hint'] = (l + 30, t + 27)
-        coords['bar'] = (l + 30, t + SQUARE_SIZE + 27)
-        coords['reset'] = (l + 30, t + 3 * SQUARE_SIZE + 27)
-        coords['to_title'] = (l + 30, t + 4 * SQUARE_SIZE + 27)
-        coords['back'] = (30, 30)
-
-        return coords
-
-    def get_board_position_coords(self, big_idx: int, small_idx: int) -> tuple[int, int]:
-        """Get pixel coordinates for a board position."""
-
-        box_x, box_y = idx_to_rc[big_idx][small_idx]
-        left = box_y * SQUARE_SIZE + X_MARGIN
-        top = box_x * SQUARE_SIZE + Y_MARGIN
-        return (left + SQUARE_SIZE // 2, top + SQUARE_SIZE // 2)
-
-    def simulate_click_visual(self, x: int, y: int, reporter: VisualTestReporter, highlight_color: tuple = (255, 0, 0)):
-        """Simulate a mouse click with visual feedback (visual only, no event posting)."""
-
-        DISPLAY_SURF = pygame.display.get_surface()
-
-        radius = 10
-        area_rect = pygame.Rect(x - radius - 3, y - radius - 3, (radius + 3) * 2, (radius + 3) * 2)
-        saved_area = DISPLAY_SURF.subsurface(area_rect).copy()
-
-        pygame.draw.circle(DISPLAY_SURF, highlight_color, (x, y), radius, 3)
-        pygame.display.update(area_rect)
-        reporter.wait(0.15)
-
-        DISPLAY_SURF.blit(saved_area, area_rect)
-        pygame.display.update(area_rect)
-
+    def wait_for_settings_screen(self, game_ui: GameUI, reporter: VisualTestReporter,
+                                 timeout: float = 5.0) -> bool:
+        """Wait a short moment for the settings screen to render."""
         reporter.wait(0.1)
+        return True
 
-    def simulate_hint_click(self, game_ui: GameUI, player: UserPlayer, reporter: VisualTestReporter):
-        """Simulate clicking the hint button and trigger hint logic using proper GameUI methods."""
+    def wait_for_sign_selected(self, game_ui: GameUI, sign: str,
+                               reporter: VisualTestReporter, timeout: float = 5.0) -> bool:
+        """Wait until the selected sign is set on the game UI."""
+        return self.wait_for_state_condition(
+            game_ui,
+            lambda gui: gui.selected_sign == sign,
+            f"Sign '{sign}' selected",
+            timeout=timeout
+        )
 
-        DISPLAY_SURF = pygame.display.get_surface()
+    def wait_for_difficulty_selected(self, game_ui: GameUI, difficulty: str,
+                                     reporter: VisualTestReporter,
+                                     timeout: float = 5.0) -> bool:
+        """Wait until the selected difficulty is set on the game UI."""
+        return self.wait_for_state_condition(
+            game_ui,
+            lambda gui: gui.selected_difficulty == difficulty,
+            f"Difficulty '{difficulty}' selected",
+            timeout=timeout
+        )
+
+    def wait_for_reset_complete(self, game_ui: GameUI, reporter: VisualTestReporter,
+                                timeout: float = 5.0) -> bool:
+        """Wait until a reset has completed (board is empty again)."""
+        return self.wait_for_state_condition(
+            game_ui,
+            lambda gui: gui.state[0]['display'].count('-') == 9
+                        and gui.prev_move_made is None
+                        or gui.state[0]['display'].count('-') == 9
+                        and gui.prev_small_idx is None,
+            "Reset complete",
+            timeout=timeout
+        )
+
+    def wait_for_hint_displayed(self, game_ui: GameUI, reporter: VisualTestReporter,
+                                timeout: float = 10.0) -> bool:
+        """Wait until a hint is displayed."""
+        return self.wait_for_state_condition(
+            game_ui,
+            lambda gui: gui.hinted_move is not None,
+            "Hint displayed",
+            timeout=timeout
+        )
+
+    def click_title_button(self, button_name: str, reporter: VisualTestReporter):
+        """Click a button on the title/settings screen by name."""
         coords = self.get_button_coords()
-        hint_x, hint_y = coords['hint']
+        key_map = {
+            '1player': 'one_player',
+            '2player': 'two_player',
+            'choose_x': 'choose_x',
+            'choose_o': 'choose_o',
+            'easy': 'choose_easy',
+            'normal': 'choose_normal',
+            'hard': 'choose_hard',
+            'back': 'back',
+        }
+        key = key_map.get(button_name, button_name)
+        x, y = coords[key]
+        reporter.log_step(
+            f"Click '{button_name}' button",
+            action=f"post MOUSEBUTTONUP at ({x}, {y})"
+        )
+        self.post_click_event(x, y, reporter)
 
-        button_rect = pygame.Rect(hint_x - 30, hint_y - 27, 60, 54)
-
-        saved_area = DISPLAY_SURF.subsurface(button_rect).copy()
-        DISPLAY_SURF.blit(button_hint_hover, (hint_x - 30, hint_y - 27))
-        pygame.display.update(button_rect)
-        reporter.wait(0.2)
-
-        DISPLAY_SURF.blit(saved_area, button_rect)
-        pygame.display.update(button_rect)
-
-        if game_ui.game_evaluator._instance.algorithm is None:
-            from utils.players import MiniMaxPlayer
-            game_ui.game_evaluator._instance.algorithm = MiniMaxPlayer(target_depth=3)
-
-        b_idx, s_idx = game_ui.game_evaluator.get_best_move(game_ui.state, game_ui.prev_small_idx, player)
-
-        if b_idx is not None and s_idx is not None:
-            box_x, box_y = idx_to_rc[b_idx][s_idx]
-            game_ui.hinted_move = (box_x, box_y)
-            game_ui.draw_sign_on_box(box_x, box_y, player.sign)
-            game_ui.cover_box(box_x, box_y, transparent=True)
-            pygame.display.update()
-            reporter.wait()
-
-    def click_reset_button(self, game_ui: GameUI, reporter: VisualTestReporter):
-        """Click the reset button with hover effect using proper GameUI methods."""
-
-        DISPLAY_SURF = pygame.display.get_surface()
+    def click_game_button(self, button_name: str, reporter: VisualTestReporter):
+        """Click a button on the game page (hint, bar, reset, to_title)."""
         coords = self.get_button_coords()
-        t = Y_MARGIN + 2 * SQUARE_SIZE
-        l = WINDOW_WIDTH - X_MARGIN + 1 * SQUARE_SIZE
-
-        DISPLAY_SURF.blit(button_reset_hover, (l, t + 3 * SQUARE_SIZE))
-        pygame.display.update()
-        reporter.wait()
-
-        game_ui.player1.reset_legal_moves()
-        game_ui.player2.reset_legal_moves()
-        game_ui.reset_state()
-        game_ui.hinted_move = None
-
-        game_ui.draw_board()
-        game_ui.draw_buttons()
-        pygame.display.update()
-        reporter.wait()
-
-    def click_to_title_button(self, game_ui: GameUI, reporter: VisualTestReporter):
-        """Click the 'to title' button with hover effect."""
-
-        DISPLAY_SURF = pygame.display.get_surface()
-        t = Y_MARGIN + 2 * SQUARE_SIZE
-        l = WINDOW_WIDTH - X_MARGIN + 1 * SQUARE_SIZE
-
-        DISPLAY_SURF.blit(button_to_title_hover, (l, t + 4 * SQUARE_SIZE))
-        pygame.display.update()
-        reporter.wait()
-
-        game_ui.player1.reset_legal_moves()
-        game_ui.player2.reset_legal_moves()
-        game_ui.reset_state()
-        game_ui.selected_sign = None
-        game_ui.selected_difficulty = None
-        game_ui.hinted_move = None
-        game_ui.use_eval_bar = False
-
-    def show_title_screen(self, game_ui: GameUI, reporter: VisualTestReporter, highlight_button: str = None):
-        """
-        Display the title screen.
-
-        Arguments:
-            game_ui: The game UI instance
-            reporter: The visual test reporter
-            highlight_button: Optional - '1player' or '2player' to show hover effect
-        """
-
-        pygame.event.clear()
-
-        DISPLAY_SURF = pygame.display.get_surface()
-
-        if highlight_button == '1player':
-            DISPLAY_SURF.blit(title_image1, (0, 0))
-        elif highlight_button == '2player':
-            DISPLAY_SURF.blit(title_image2, (0, 0))
-        else:
-            DISPLAY_SURF.blit(title_image, (0, 0))
-
-        pygame.display.flip()
-        pygame.event.pump()
-        pygame.event.clear()
-
-        if highlight_button:
-            reporter.wait()
-
-    def click_menu_button(self, game_ui: GameUI, button_type: str, reporter: VisualTestReporter):
-        """
-        Click a button on the main menu with visual feedback.
-
-        Arguments:
-            game_ui: The game UI instance
-            button_type: '1player' or '2player'
-            reporter: The visual test reporter
-        """
-
-        self.show_title_screen(game_ui, reporter, highlight_button=button_type)
-        reporter.wait()
-
-    def show_settings_menu(self, game_ui: GameUI, reporter: VisualTestReporter,
-                           selected_sign: str = None, selected_difficulty: str = None):
-        """
-        Display the settings menu with selections highlighted.
-
-        Arguments:
-            game_ui: The game UI instance
-            reporter: The visual test reporter
-            selected_sign: 'X', 'O', or None
-            selected_difficulty: 'easy', 'normal', 'hard', or None
-        """
-
-        pygame.event.clear()
-
-        DISPLAY_SURF = pygame.display.get_surface()
-
-        DISPLAY_SURF.blit(choose_image, (0, 0))
-
-        if selected_sign == 'X':
-            DISPLAY_SURF.blit(choose_image_top_x, (0, 0))
-        elif selected_sign == 'O':
-            DISPLAY_SURF.blit(choose_image_top_o, (0, 0))
-        else:
-            DISPLAY_SURF.blit(choose_image_top, (0, 0))
-
-        if selected_difficulty == 'easy':
-            DISPLAY_SURF.blit(choose_image_bottom_easy, (0, 351))
-        elif selected_difficulty == 'normal':
-            DISPLAY_SURF.blit(choose_image_bottom_normal, (0, 351))
-        elif selected_difficulty == 'hard':
-            DISPLAY_SURF.blit(choose_image_bottom_hard, (0, 351))
-        else:
-            DISPLAY_SURF.blit(choose_image_bottom, (0, 351))
-
-        pygame.draw.rect(DISPLAY_SURF, BG_COLOR, pygame.Rect(0, 0, 60, 60))
-        DISPLAY_SURF.blit(button_back, (0, 0))
-
-        pygame.display.update()
-        pygame.event.pump()
-        pygame.event.clear()
-
-        reporter.wait()
-
-    def select_sign(self, game_ui: GameUI, sign: str, reporter: VisualTestReporter,
-                    current_difficulty: str = None):
-        """
-        Select a sign (X or O) in the settings menu.
-
-        Arguments:
-            game_ui: The game UI instance
-            sign: 'X' or 'O'
-            reporter: The visual test reporter
-            current_difficulty: Currently selected difficulty (if any)
-        """
-
-        game_ui.selected_sign = sign
-        self.show_settings_menu(game_ui, reporter, selected_sign=sign,
-                                selected_difficulty=current_difficulty)
-
-    def select_difficulty(self, game_ui: GameUI, difficulty: str, reporter: VisualTestReporter,
-                          current_sign: str = None):
-        """
-        Select a difficulty in the settings menu.
-
-        Arguments:
-            game_ui: The game UI instance
-            difficulty: 'easy', 'normal', or 'hard'
-            reporter: The visual test reporter
-            current_sign: Currently selected sign (if any)
-        """
-
-        game_ui.selected_difficulty = difficulty
-        self.show_settings_menu(game_ui, reporter, selected_sign=current_sign,
-                                selected_difficulty=difficulty)
-
-    def click_back_button(self, game_ui: GameUI, reporter: VisualTestReporter):
-        """
-        Click the back button with visual feedback.
-
-        Arguments:
-            game_ui: The game UI instance
-            reporter: The visual test reporter
-        """
-
-        DISPLAY_SURF = pygame.display.get_surface()
-
-        pygame.draw.rect(DISPLAY_SURF, BG_COLOR, pygame.Rect(0, 0, 60, 60))
-        DISPLAY_SURF.blit(button_back_hover, (0, 0))
-        pygame.display.update()
-        reporter.wait()
-
-        game_ui.selected_sign = None
-        game_ui.selected_difficulty = None
-
-    def transition_to_game(self, game_ui: GameUI, reporter: VisualTestReporter):
-        """Transition from menu to game board."""
-
-        pygame.event.clear()
-
-        game_ui.draw_board()
-        pygame.display.update()
-
-        pygame.event.pump()
-
-        reporter.wait(0.05)
-
-        pygame.event.clear()
-
-        game_ui.draw_buttons()
-        pygame.display.update()
-
-        pygame.event.clear()
-
-        reporter.wait(0.15)
-
-    def make_board_move(self, game_ui: GameUI, big_idx: int, small_idx: int,
-                        sign: str, reporter: VisualTestReporter):
-        """
-        Make a move on the game board using proper GameUI methods.
-
-        Arguments:
-            game_ui: The game UI instance
-            big_idx: Big board index
-            small_idx: Small board index
-            sign: Player sign ('X' or 'O')
-            reporter: Visual test reporter
-        """
-
-        player = game_ui.player1 if sign == 'X' else game_ui.player2
-
-        coords = self.get_board_position_coords(big_idx, small_idx)
-        self.simulate_click_visual(coords[0], coords[1], reporter, (0, 255, 0))
-
-        box_x, box_y = idx_to_rc[big_idx][small_idx]
-
-        state, board_is_complete = StateUpdater.update_state(game_ui.state, big_idx, small_idx, sign)
-
-        if game_ui.hinted_move:
-            game_ui.cover_box(game_ui.hinted_move[0], game_ui.hinted_move[1])
-            game_ui.hinted_move = None
-
-        game_ui.draw_sign_on_box(box_x, box_y, sign)
-
-        for i in set(i for i, _ in player.get_current_legal_moves(game_ui.prev_small_idx)):
-            game_ui.draw_subgrid_at_board(i, SMALL_LINE_COLOR)
-
-        game_ui.state = state
-
-        if game_ui.state[0]['display'][big_idx] != '-':
-            game_ui.draw_sign_on_big_board(big_idx, game_ui.state[0]['display'][big_idx])
-
-        if game_ui.state[0]['display'][small_idx] != '-':
-            game_ui.prev_small_idx = None
-        else:
-            game_ui.prev_small_idx = small_idx
-
-        game_ui.prev_move_made = (big_idx, small_idx)
-
-        player.update_legal_moves(big_idx, small_idx, board_is_complete=board_is_complete)
-
-        next_player = game_ui.player2 if sign == 'X' else game_ui.player1
-        opposite_color = OPPOSITE_SIGN_COLORS[sign]
-
-        if game_ui.prev_small_idx is not None:
-            game_ui.draw_subgrid_at_board(game_ui.prev_small_idx, opposite_color)
-        else:
-            for i in set(i for i, _ in next_player.get_current_legal_moves(game_ui.prev_small_idx)):
-                game_ui.draw_subgrid_at_board(i, opposite_color)
-
-        pygame.display.update()
-        reporter.wait()
-
-    def test_path_1(self, game_ui):
+        x, y = coords[button_name]
+        reporter.log_step(
+            f"Click '{button_name}' game button",
+            action=f"post MOUSEBUTTONUP at ({x}, {y})"
+        )
+        self.post_click_event(x, y, reporter)
+
+    def test_path_1(self, game_ui, game_thread):
         """
         Path 1: [1,3,8,10,8,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
 
-        reporter.log_step(1, "Start Menu", "Display title screen")
-        self.show_title_screen(game_ui, reporter)
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Display title screen", node_id=1)
+        game_ui.reset = False
+        game_thread.start()
+        reporter.wait(0.5)
         reporter.log_assertion(game_ui.state is not None, "Game state initialized")
 
-        reporter.log_step(3, "Click '2 Player'", "Start 2-player mode")
-        self.click_menu_button(game_ui, '2player', reporter)
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
-        reporter.log_assertion(isinstance(game_ui.player1, UserPlayer), "Player 1 is UserPlayer")
+        # [3] Click '2 Player' -> Game Page
+        reporter.log_step("Click '2 Player'", "Start 2-player mode", node_id=3)
+        self.click_title_button('2player', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "Game board is ready")
+        reporter.wait(0.5)
 
-        reporter.log_step(8, "Main Game Page", "Game board ready")
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "Game board ready", node_id=8)
+        reporter.log_assertion(isinstance(game_ui.player1, UserPlayer), "Player 1 is UserPlayer")
         reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "Board is empty")
 
-        reporter.log_step(10, "Click hint button", "Request AI hint")
-        self.simulate_hint_click(game_ui, game_ui.player1, reporter)
-        reporter.log_assertion(game_ui.hinted_move is not None, "Hint displayed")
+        # [10] Click hint button
+        reporter.log_step("Click hint button", "Request AI hint", node_id=10)
+        self.click_game_button('hint', reporter)
+        hint_shown = self.wait_for_hint_displayed(game_ui, reporter, timeout=10.0)
+        reporter.log_assertion(hint_shown, "Hint displayed")
+        reporter.wait(0.5)
 
-        reporter.log_step(8, "Main Game Page", "Return from hint")
-        reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "State unchanged")
+        # [8] Main Game Page (after hint)
+        reporter.log_step("Main Game Page", "Return from hint", node_id=8)
+        reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "State unchanged after hint")
 
-        reporter.log_step(5, "Click to title", "Return to menu")
-        self.click_to_title_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        # [5] Click to title -> Return to menu
+        reporter.log_step("Click to title", "Return to menu", node_id=5)
+        self.click_game_button('to_title', reporter)
+        reporter.wait(0.5)
+
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at main menu", node_id=1)
         reporter.log_assertion(game_ui.selected_sign is None, "Settings cleared")
+        reporter.wait(0.5)
 
-        reporter.log_step(1, "Start Menu", "Back at main menu")
-        reporter.wait()
+        # [3] Click '2 Player' again
+        reporter.log_step("Click '2 Player' again", "Start new game", node_id=3)
+        self.click_title_button('2player', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "New game board ready")
+        reporter.wait(0.5)
 
-        reporter.log_step(3, "Click '2 Player' again", "Start new game")
-        self.click_menu_button(game_ui, '2player', reporter)
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
-
-        reporter.log_step(8, "Main Game Page", "Fresh board")
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "Fresh board", node_id=8)
         reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "New game ready")
 
-        reporter.log_step(11, "Make a move", "Place X at (5,5)")
-        self.make_board_move(game_ui, 5, 5, 'X', reporter)
-        reporter.log_assertion(game_ui.state[5]['display'][5] == 'X', "Move placed")
+        # [11] Make a move: X at (5,5)
+        reporter.log_step("Make a move", "Place X at (5,5)", node_id=11)
+        self.post_move_click(5, 5, reporter)
+        confirmed = self.wait_for_move_applied(game_ui, 5, 5, 'X', timeout=5.0)
+        reporter.log_assertion(confirmed, "Move X at (5,5) placed")
 
-        reporter.log_step(12, "End of test", "Test completed")
+        # [12] End of test
+        reporter.log_step("End of test", "Test completed", node_id=12)
         print(f"\nPATH 1 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-    def test_path_2(self, game_ui):
+    def test_path_2(self, game_ui, game_thread):
         """
         Path 2: [1,2,4,6,7,8,11,8,11,8,10,8,11,12]
         """
         reporter = VisualTestReporter()
 
-        reporter.log_step(1, "Start Menu", "Display title screen")
-        self.show_title_screen(game_ui, reporter)
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Display title screen", node_id=1)
+        game_ui.reset = False
+        game_thread.start()
+        reporter.wait(0.5)
 
-        reporter.log_step(2, "Click '1 Player'", "Go to settings")
-        self.click_menu_button(game_ui, '1player', reporter)
-        self.show_settings_menu(game_ui, reporter)
+        # [2] Click '1 Player' -> Settings
+        reporter.log_step("Click '1 Player'", "Go to settings", node_id=2)
+        self.click_title_button('1player', reporter)
+        self.wait_for_settings_screen(game_ui, reporter)
 
-        reporter.log_step(4, "Select X", "Choose player sign")
-        self.select_sign(game_ui, 'X', reporter)
-        reporter.log_assertion(game_ui.selected_sign == 'X', "Sign selected")
+        # [4] Select X
+        reporter.log_step("Select X", "Choose player sign", node_id=4)
+        self.click_title_button('choose_x', reporter)
 
-        reporter.log_step(6, "Settings with one option", "X selected")
-        reporter.wait()
 
-        reporter.log_step(7, "Select difficulty", "Choose Hard")
-        self.select_difficulty(game_ui, 'hard', reporter, current_sign=game_ui.selected_sign)
-        reporter.log_assertion(game_ui.selected_difficulty == 'hard', "Difficulty selected")
+        # [6] Settings with one option
 
-        reporter.log_step(8, "Main Game Page", "Game started")
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = MiniMaxPlayer(target_depth=5)
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
 
-        reporter.log_step(11, "Make move 1", "X at (5,5)")
-        self.make_board_move(game_ui, 5, 5, 'X', reporter)
+        # [7] Select difficulty: Hard
+        reporter.log_step("Select difficulty", "Choose Hard", node_id=7)
+        self.click_title_button('hard', reporter)
 
-        reporter.log_step(8, "Main Game Page", "After move 1")
-        reporter.wait()
+        selected = self.wait_for_sign_selected(game_ui, 'X', reporter)
+        reporter.log_assertion(selected, "Sign X selected")
+        reporter.log_step("Settings with one option", "X selected", node_id=6)
+        reporter.wait(0.3)
+        diff_selected = self.wait_for_difficulty_selected(game_ui, 'hard', reporter)
+        reporter.log_assertion(diff_selected, "Difficulty 'hard' selected")
 
-        reporter.log_step(11, "Make move 2", "O at (5,3)")
-        self.make_board_move(game_ui, 5, 3, 'O', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "Game board ready after settings")
 
-        reporter.log_step(8, "Main Game Page", "After move 2")
-        reporter.wait()
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "Game started", node_id=8)
+        reporter.wait(0.5)
 
-        reporter.log_step(10, "Click hint", "Get hint for next move")
-        self.simulate_hint_click(game_ui, game_ui.player1, reporter)
+        # [11] Make move
+        reporter.log_step("Make move 1", "X at (5,5)", node_id=11)
+        self.post_move_click(5, 5, reporter)
+        confirmed = self.wait_for_move_applied(game_ui, 5, 5, 'X', timeout=5.0)
+        reporter.log_assertion(confirmed, "Move 1: X at (5,5) applied")
 
-        reporter.log_step(8, "Main Game Page", "After hint")
-        reporter.wait()
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "After move 1, waiting for AI", node_id=8)
+        reporter.wait(2.0)
 
-        reporter.log_step(11, "Make move 3", "X at (3,1)")
-        self.make_board_move(game_ui, 3, 1, 'X', reporter)
+        # [11] Make move
+        reporter.log_step("Make move 2", "User makes second move", node_id=11)
+        moved = False
+        deadline = time.time() + 10.0
+        while not moved and time.time() < deadline:
+            target_board = game_ui.prev_small_idx
+            if target_board is not None:
+                for cell in range(1, 10):
+                    if game_ui.state[target_board]['display'][cell] == '-':
+                        self.post_move_click(target_board, cell, reporter)
+                        confirmed = self.wait_for_move_applied(
+                            game_ui, target_board, cell, 'X', timeout=5.0
+                        )
+                        if confirmed:
+                            reporter.log_assertion(True, f"Move 2: X at ({target_board},{cell}) applied")
+                            moved = True
+                            break
+            else:
+                for b in range(1, 10):
+                    if game_ui.state[0]['display'][b] == '-':
+                        for cell in range(1, 10):
+                            if game_ui.state[b]['display'][cell] == '-':
+                                self.post_move_click(b, cell, reporter)
+                                confirmed = self.wait_for_move_applied(
+                                    game_ui, b, cell, 'X', timeout=5.0
+                                )
+                                if confirmed:
+                                    reporter.log_assertion(
+                                        True, f"Move 2: X at ({b},{cell}) applied"
+                                    )
+                                    moved = True
+                                    break
+                    if moved:
+                        break
+            if not moved:
+                reporter.wait(0.2)
+        reporter.log_assertion(moved, "Move 2 was successfully made")
 
-        reporter.log_step(12, "End of test", "Test completed")
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "After move 2", node_id=8)
+        reporter.wait(2.0)
+
+        # [10] Click hint
+        reporter.log_step("Click hint", "Get hint for next move", node_id=10)
+        self.click_game_button('hint', reporter)
+        hint_shown = self.wait_for_hint_displayed(game_ui, reporter, timeout=10.0)
+        reporter.log_assertion(hint_shown, "Hint displayed")
+
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "After hint", node_id=8)
+        reporter.wait(0.5)
+
+        # [11] Make move
+        reporter.log_step("Make move 3", "User makes third move", node_id=11)
+        moved = False
+        deadline = time.time() + 10.0
+        while not moved and time.time() < deadline:
+            target_board = game_ui.prev_small_idx
+            if target_board is not None:
+                for cell in range(1, 10):
+                    if game_ui.state[target_board]['display'][cell] == '-':
+                        self.post_move_click(target_board, cell, reporter)
+                        confirmed = self.wait_for_move_applied(
+                            game_ui, target_board, cell, 'X', timeout=5.0
+                        )
+                        if confirmed:
+                            reporter.log_assertion(True, f"Move 3: X at ({target_board},{cell}) applied")
+                            moved = True
+                            break
+            else:
+                for b in range(1, 10):
+                    if game_ui.state[0]['display'][b] == '-':
+                        for cell in range(1, 10):
+                            if game_ui.state[b]['display'][cell] == '-':
+                                self.post_move_click(b, cell, reporter)
+                                confirmed = self.wait_for_move_applied(
+                                    game_ui, b, cell, 'X', timeout=5.0
+                                )
+                                if confirmed:
+                                    reporter.log_assertion(
+                                        True, f"Move 3: X at ({b},{cell}) applied"
+                                    )
+                                    moved = True
+                                    break
+                    if moved:
+                        break
+            if not moved:
+                reporter.wait(0.2)
+        reporter.log_assertion(moved, "Move 3 was successfully made")
+
+        # [12] End of test
+        reporter.log_step("End of test", "Test completed", node_id=12)
         print(f"\nPATH 2 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-    def test_path_3(self, game_ui):
+    def test_path_3(self, game_ui, game_thread):
         """
         Path 3: [1,2,4,6,7,8,9,8,9,8,10,8,9,8,11,8,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
 
-        reporter.log_step(1, "Start Menu", "Display title screen")
-        self.show_title_screen(game_ui, reporter)
-
-        reporter.log_step(2, "Click '1 Player'", "Go to settings")
-        self.click_menu_button(game_ui, '1player', reporter)
-        self.show_settings_menu(game_ui, reporter)
-
-        reporter.log_step(4, "Select O", "Choose O")
-        self.select_sign(game_ui, 'O', reporter)
-
-        reporter.log_step(6, "Settings with one option", "O selected")
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Display title screen", node_id=1)
+        game_ui.reset = False
+        game_thread.start()
         reporter.wait(0.5)
 
-        reporter.log_step(7, "Select difficulty", "Choose Normal")
-        self.select_difficulty(game_ui, 'normal', reporter, current_sign=game_ui.selected_sign)
+        # [2] Click '1 Player'
+        reporter.log_step("Click '1 Player'", "Go to settings", node_id=2)
+        self.click_title_button('1player', reporter)
+        self.wait_for_settings_screen(game_ui, reporter)
 
-        reporter.log_step(8, "Main Game Page", "Game started")
-        game_ui.player1 = MiniMaxPlayer(target_depth=5)
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [4] Select O
+        reporter.log_step("Select O", "Choose O", node_id=4)
+        self.click_title_button('choose_o', reporter)
 
-        reporter.log_step(9, "Click reset", "Reset the game")
-        self.click_reset_button(game_ui, reporter)
+        # [6] Settings with one option
 
-        reporter.log_step(8, "Main Game Page", "After reset 1")
-        reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "Board reset")
 
-        reporter.log_step(9, "Click reset", "Reset the game")
-        self.click_reset_button(game_ui, reporter)
+        # [7] Select difficulty: Normal
+        reporter.log_step("Select difficulty", "Choose Normal", node_id=7)
+        self.click_title_button('normal', reporter)
 
-        reporter.log_step(8, "Main Game Page", "After reset 2")
-        reporter.wait()
+        selected = self.wait_for_sign_selected(game_ui, 'O', reporter)
+        reporter.log_assertion(selected, "Sign O selected")
+        reporter.log_step("Settings with one option", "O selected", node_id=6)
+        reporter.wait(0.5)
+        diff_selected = self.wait_for_difficulty_selected(game_ui, 'normal', reporter)
+        reporter.log_assertion(diff_selected, "Difficulty 'normal' selected")
 
-        reporter.log_step(10, "Click hint", "Request hint")
-        self.simulate_hint_click(game_ui, game_ui.player1, reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "Game board ready")
 
-        reporter.log_step(8, "Main Game Page", "After hint")
-        reporter.wait()
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "Game started", node_id=8)
+        reporter.wait(0.5)
 
-        reporter.log_step(9, "Click reset", "Reset the game")
-        self.click_reset_button(game_ui, reporter)
+        # [9] Click reset
+        reporter.log_step("Click reset", "Reset the game", node_id=9)
+        self.click_game_button('reset', reporter)
+        reset_done = self.wait_for_reset_complete(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(reset_done, "Board reset after first reset")
 
-        reporter.log_step(8, "Main Game Page", "After reset 3")
-        reporter.wait()
+        # [8] Main Game Page (after reset 1)
+        reporter.log_step("Main Game Page", "After reset 1", node_id=8)
+        reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "Board is empty")
+        reporter.wait(0.5)
 
-        reporter.log_step(11, "Make a move", "X at (1,1)")
-        self.make_board_move(game_ui, 1, 1, 'X', reporter)
+        # [9] Click reset again
+        reporter.log_step("Click reset", "Reset the game again", node_id=9)
+        self.click_game_button('reset', reporter)
+        reset_done = self.wait_for_reset_complete(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(reset_done, "Board reset after second reset")
 
-        reporter.log_step(8, "Main Game Page", "After move")
-        reporter.wait()
+        # [8] Main Game Page (after reset 2)
+        reporter.log_step("Main Game Page", "After reset 2", node_id=8)
+        reporter.wait(0.5)
 
-        reporter.log_step(5, "Click to title", "Return to menu")
-        self.click_to_title_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        # [10] Click hint
+        reporter.log_step("Click hint", "Request hint", node_id=10)
+        self.click_game_button('hint', reporter)
+        hint_shown = self.wait_for_hint_displayed(game_ui, reporter, timeout=10.0)
+        reporter.log_assertion(hint_shown, "Hint displayed")
 
-        reporter.log_step(1, "Start Menu", "Back at menu")
-        reporter.wait()
+        # [8] Main Game Page (after hint)
+        reporter.log_step("Main Game Page", "After hint", node_id=8)
+        reporter.wait(0.5)
 
-        reporter.log_step(3, "Click '2 Player'", "Start 2-player mode")
-        self.click_menu_button(game_ui, '2player', reporter)
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [9] Click reset
+        reporter.log_step("Click reset", "Reset the game", node_id=9)
+        self.click_game_button('reset', reporter)
+        reset_done = self.wait_for_reset_complete(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(reset_done, "Board reset after third reset")
 
-        reporter.log_step(8, "Main Game Page", "2-player game ready")
-        reporter.wait()
+        # [8] Main Game Page (after reset 3)
+        reporter.log_step("Main Game Page", "After reset 3", node_id=8)
+        reporter.wait(0.5)
 
-        reporter.log_step(11, "Make a move", "X at (5,5)")
-        self.make_board_move(game_ui, 5, 5, 'X', reporter)
+        # [11] Make a move
+        ai_moved = self.wait_for_state_condition(
+            game_ui,
+            lambda gui: gui.prev_move_made is not None,
+            "AI made first move after reset",
+            timeout=10.0
+        )
+        if ai_moved:
+            reporter.log_step("Make a move", "O move after AI", node_id=11)
+            moved = False
+            deadline = time.time() + 10.0
+            while not moved and time.time() < deadline:
+                target_board = game_ui.prev_small_idx
+                if target_board is not None:
+                    for cell in range(1, 10):
+                        if game_ui.state[target_board]['display'][cell] == '-':
+                            self.post_move_click(target_board, cell, reporter)
+                            confirmed = self.wait_for_move_applied(
+                                game_ui, target_board, cell, 'O', timeout=5.0
+                            )
+                            if confirmed:
+                                reporter.log_assertion(True, f"Move: O at ({target_board},{cell}) applied")
+                                moved = True
+                                break
+                else:
+                    for b in range(1, 10):
+                        if game_ui.state[0]['display'][b] == '-':
+                            for cell in range(1, 10):
+                                if game_ui.state[b]['display'][cell] == '-':
+                                    self.post_move_click(b, cell, reporter)
+                                    confirmed = self.wait_for_move_applied(
+                                        game_ui, b, cell, 'O', timeout=5.0
+                                    )
+                                    if confirmed:
+                                        reporter.log_assertion(
+                                            True, f"Move: O at ({b},{cell}) applied"
+                                        )
+                                        moved = True
+                                        break
+                        if moved:
+                            break
+                if not moved:
+                    reporter.wait(0.2)
+            reporter.log_assertion(moved, "User move was successfully made")
+        else:
+            reporter.log_assertion(False, "AI should have moved first")
 
-        reporter.log_step(12, "End of test", "Test completed")
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "After move", node_id=8)
+        reporter.wait(0.5)
+
+        # [5] Click to title
+        reporter.log_step("Click to title", "Return to menu", node_id=5)
+        self.click_game_button('to_title', reporter)
+        reporter.wait(0.5)
+
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at menu", node_id=1)
+        reporter.wait(0.5)
+
+        # [3] Click '2 Player'
+        reporter.log_step("Click '2 Player'", "Start 2-player mode", node_id=3)
+        self.click_title_button('2player', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "2-player game board ready")
+        reporter.wait(0.5)
+
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "2-player game ready", node_id=8)
+        reporter.wait(0.3)
+
+        # [11] Make a move
+        reporter.log_step("Make a move", "X at (5,5)", node_id=11)
+        self.post_move_click(5, 5, reporter)
+        confirmed = self.wait_for_move_applied(game_ui, 5, 5, 'X', timeout=5.0)
+        reporter.log_assertion(confirmed, "Move X at (5,5) placed")
+
+        # [12] End of test
+        reporter.log_step("End of test", "Test completed", node_id=12)
         print(f"\nPATH 3 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-    def test_path_4(self, game_ui):
+    def test_path_4(self, game_ui, game_thread):
         """
         Path 4: [1,2,4,6,4,6,7,8,5,1,3,8,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
 
-        reporter.log_step(1, "Start Menu", "Display title screen")
-        self.show_title_screen(game_ui, reporter)
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Display title screen", node_id=1)
+        game_ui.reset = False
+        game_thread.start()
+        reporter.wait(0.5)
 
-        reporter.log_step(2, "Click '1 Player'", "Go to settings")
-        self.click_menu_button(game_ui, '1player', reporter)
-        self.show_settings_menu(game_ui, reporter)
+        # [2] Click '1 Player'
+        reporter.log_step("Click '1 Player'", "Go to settings", node_id=2)
+        self.click_title_button('1player', reporter)
+        self.wait_for_settings_screen(game_ui, reporter)
 
-        reporter.log_step(4, "Select X", "Choose player sign")
-        self.select_sign(game_ui, 'X', reporter)
+        # [4] Select X
+        reporter.log_step("Select X", "Choose player sign", node_id=4)
+        self.click_title_button('choose_x', reporter)
 
-        reporter.log_step(6, "Settings with one option", "X selected")
-        reporter.wait()
+        # [6] Settings with one option
+        reporter.log_step("Settings with one option", "X selected", node_id=6)
+        reporter.wait(0.3)
 
-        reporter.log_step(4, "Select O", "Choose O")
-        self.select_sign(game_ui, 'O', reporter)
+        # [4] Select O
+        reporter.log_step("Select O", "Choose O", node_id=4)
+        self.click_title_button('choose_o', reporter)
 
-        reporter.log_step(6, "Settings with one option", "O selected")
-        reporter.wait()
+        # [6] Settings with one option
 
-        reporter.log_step(7, "Select difficulty", "Choose Easy")
-        self.select_difficulty(game_ui, 'easy', reporter, current_sign=game_ui.selected_sign)
 
-        reporter.log_step(8, "Main Game Page", "Game started")
-        game_ui.player1 = RandomPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [7] Select difficulty: Easy
+        reporter.log_step("Select difficulty", "Choose Easy", node_id=7)
+        self.click_title_button('easy', reporter)
 
-        reporter.log_step(5, "Click to title", "Return to menu")
-        self.click_to_title_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        selected = self.wait_for_sign_selected(game_ui, 'O', reporter)
+        reporter.log_assertion(selected, "Sign changed to O")
+        reporter.log_step("Settings with one option", "O selected", node_id=6)
+        reporter.wait(0.3)
+        diff_selected = self.wait_for_difficulty_selected(game_ui, 'easy', reporter)
+        reporter.log_assertion(diff_selected, "Difficulty 'easy' selected")
 
-        reporter.log_step(1, "Start Menu", "Back at menu 1")
-        reporter.wait()
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "Game board ready")
 
-        reporter.log_step(3, "Click '2 Player'", "Start 2-player")
-        self.click_menu_button(game_ui, '2player', reporter)
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "Game started", node_id=8)
+        reporter.wait(0.5)
 
-        reporter.log_step(8, "Main Game Page", "2-player ready")
-        reporter.wait()
+        # [5] Click to title
+        reporter.log_step("Click to title", "Return to menu", node_id=5)
+        self.click_game_button('to_title', reporter)
+        reporter.wait(0.5)
 
-        reporter.log_step(5, "Click to title", "Return to menu")
-        self.click_to_title_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at menu 1", node_id=1)
+        reporter.wait(0.5)
 
-        reporter.log_step(1, "Start Menu", "Back at menu 2")
-        reporter.wait()
+        # [3] Click '2 Player'
+        reporter.log_step("Click '2 Player'", "Start 2-player", node_id=3)
+        self.click_title_button('2player', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "2-player game board ready")
 
-        reporter.log_step(3, "Click '2 Player'", "Start 2-player again")
-        self.click_menu_button(game_ui, '2player', reporter)
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "2-player ready", node_id=8)
+        reporter.wait(0.3)
 
-        reporter.log_step(8, "Main Game Page", "2-player ready again")
-        reporter.wait()
+        # [5] Click to title
+        reporter.log_step("Click to title", "Return to menu", node_id=5)
+        self.click_game_button('to_title', reporter)
+        reporter.wait(0.5)
 
-        reporter.log_step(11, "Make a move", "X at (5,5)")
-        self.make_board_move(game_ui, 5, 5, 'X', reporter)
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at menu 2", node_id=1)
+        reporter.wait(0.5)
 
-        reporter.log_step(12, "End of test", "Test completed")
+        # [3] Click '2 Player'
+        reporter.log_step("Click '2 Player'", "Start 2-player again", node_id=3)
+        self.click_title_button('2player', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "2-player game board ready again")
+
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "2-player ready again", node_id=8)
+        reporter.wait(0.3)
+
+        # [11] Make a move
+        reporter.log_step("Make a move", "X at (5,5)", node_id=11)
+        self.post_move_click(5, 5, reporter)
+        confirmed = self.wait_for_move_applied(game_ui, 5, 5, 'X', timeout=5.0)
+        reporter.log_assertion(confirmed, "Move X at (5,5) placed")
+
+        # [12] End of test
+        reporter.log_step("End of test", "Test completed", node_id=12)
         print(f"\nPATH 4 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-    def test_path_5(self, game_ui):
+    def test_path_5(self, game_ui, game_thread):
         """
         Path 5: [1,2,4,6,5,1,2,5,1,2,4,5,1,2,4,6,4,6,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
 
-        reporter.log_step(1, "Start Menu", "Display title screen")
-        self.show_title_screen(game_ui, reporter)
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Display title screen", node_id=1)
+        game_ui.reset = False
+        game_thread.start()
+        reporter.wait(0.5)
 
-        reporter.log_step(2, "Click '1 Player'", "Go to settings (cycle 1)")
-        self.click_menu_button(game_ui, '1player', reporter)
-        self.show_settings_menu(game_ui, reporter)
+        # [2] Click '1 Player'
+        reporter.log_step("Click '1 Player'", "Go to settings (cycle 1)", node_id=2)
+        self.click_title_button('1player', reporter)
+        self.wait_for_settings_screen(game_ui, reporter)
 
-        reporter.log_step(4, "Select X", "Choose X (cycle 1)")
-        self.select_sign(game_ui, 'X', reporter)
+        # [4] Select X
+        reporter.log_step("Select X", "Choose X (cycle 1)", node_id=4)
+        self.click_title_button('choose_x', reporter)
 
-        reporter.log_step(6, "Settings with one option", "X selected (cycle 1)")
-        reporter.wait()
+        # [6] Settings with one option
+        reporter.log_step("Settings with one option", "X selected (cycle 1)", node_id=6)
+        reporter.wait(0.3)
 
-        reporter.log_step(5, "Click back", "Return to menu (cycle 1)")
-        self.click_back_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        # [5] Click back
+        reporter.log_step("Click back", "Return to menu (cycle 1)", node_id=5)
+        self.click_title_button('back', reporter)
+        reporter.wait(0.5)
 
-        reporter.log_step(1, "Start Menu", "Back at menu (cycle 2)")
-        reporter.wait()
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at menu (cycle 2)", node_id=1)
+        reporter.wait(0.5)
 
-        reporter.log_step(2, "Click '1 Player'", "Go to settings (cycle 2)")
-        self.click_menu_button(game_ui, '1player', reporter)
-        self.show_settings_menu(game_ui, reporter)
+        # [2] Click '1 Player'
+        reporter.log_step("Click '1 Player'", "Go to settings (cycle 2)", node_id=2)
+        self.click_title_button('1player', reporter)
+        self.wait_for_settings_screen(game_ui, reporter)
 
-        reporter.log_step(5, "Click back", "Return immediately (cycle 2)")
-        self.click_back_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        # [5] Click back
+        reporter.log_step("Click back", "Return immediately (cycle 2)", node_id=5)
+        self.click_title_button('back', reporter)
+        reporter.wait(0.5)
 
-        reporter.log_step(1, "Start Menu", "Back at menu (cycle 3)")
-        reporter.wait()
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at menu (cycle 3)", node_id=1)
+        reporter.wait(0.5)
 
-        reporter.log_step(2, "Click '1 Player'", "Go to settings (cycle 3)")
-        self.click_menu_button(game_ui, '1player', reporter)
-        self.show_settings_menu(game_ui, reporter)
+        # [2] Click '1 Player'
+        reporter.log_step("Click '1 Player'", "Go to settings (cycle 3)", node_id=2)
+        self.click_title_button('1player', reporter)
+        self.wait_for_settings_screen(game_ui, reporter)
 
-        reporter.log_step(4, "Select O", "Choose O (cycle 3)")
-        self.select_sign(game_ui, 'O', reporter)
+        # [4] Select O
+        reporter.log_step("Select O", "Choose O (cycle 3)", node_id=4)
+        self.click_title_button('choose_o', reporter)
 
-        reporter.log_step(5, "Click back", "Return to menu (cycle 3)")
-        self.click_back_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        # [5] Click back
+        reporter.log_step("Click back", "Return to menu (cycle 3)", node_id=5)
+        self.click_title_button('back', reporter)
+        reporter.wait(0.5)
 
-        reporter.log_step(1, "Start Menu", "Back at menu (cycle 4)")
-        reporter.wait()
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at menu (cycle 4)", node_id=1)
+        reporter.wait(0.5)
 
-        reporter.log_step(2, "Click '1 Player'", "Go to settings (cycle 4)")
-        self.click_menu_button(game_ui, '1player', reporter)
-        self.show_settings_menu(game_ui, reporter)
+        # [2] Click '1 Player'
+        reporter.log_step("Click '1 Player'", "Go to settings (cycle 4)", node_id=2)
+        self.click_title_button('1player', reporter)
+        self.wait_for_settings_screen(game_ui, reporter)
 
-        reporter.log_step(4, "Select X", "Choose X (cycle 4)")
-        self.select_sign(game_ui, 'X', reporter)
+        # [4] Select X (cycle 4)
+        reporter.log_step("Select X", "Choose X (cycle 4)", node_id=4)
+        self.click_title_button('choose_x', reporter)
 
-        reporter.log_step(6, "Settings with one option", "X selected (cycle 4)")
-        reporter.wait()
+        # [6] Settings with one option
+        reporter.log_step("Settings with one option", "X selected (cycle 4)", node_id=6)
+        reporter.wait(0.3)
 
-        reporter.log_step(4, "Select O", "Change to O (cycle 4)")
-        self.select_sign(game_ui, 'O', reporter)
+        # [4] Select O
+        reporter.log_step("Select O", "Change to O (cycle 4)", node_id=4)
+        self.click_title_button('choose_o', reporter)
 
-        reporter.log_step(6, "Settings with one option", "O selected (cycle 4)")
-        reporter.wait()
+        # [6] Settings with one option
+        reporter.log_step("Settings with one option", "O selected (cycle 4)", node_id=6)
+        reporter.wait(0.3)
 
-        reporter.log_step(5, "Click back", "Return to menu (cycle 4)")
-        self.click_back_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        # [5] Click back
+        reporter.log_step("Click back", "Return to menu (cycle 4)", node_id=5)
+        self.click_title_button('back', reporter)
+        reporter.wait(0.5)
 
-        reporter.log_step(1, "Start Menu", "Back at menu (final)")
-        reporter.wait()
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at menu (final)", node_id=1)
+        reporter.wait(0.5)
 
-        reporter.log_step(3, "Click '2 Player'", "Start 2-player mode")
-        self.click_menu_button(game_ui, '2player', reporter)
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [3] Click '2 Player'
+        reporter.log_step("Click '2 Player'", "Start 2-player mode", node_id=3)
+        self.click_title_button('2player', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "2-player game board ready")
 
-        reporter.log_step(8, "Main Game Page", "2-player ready")
-        reporter.wait()
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "2-player ready", node_id=8)
+        reporter.wait(0.3)
 
-        reporter.log_step(11, "Make a move", "X at (5,5)")
-        self.make_board_move(game_ui, 5, 5, 'X', reporter)
+        # [11] Make a move
+        reporter.log_step("Make a move", "X at (5,5)", node_id=11)
+        self.post_move_click(5, 5, reporter)
+        confirmed = self.wait_for_move_applied(game_ui, 5, 5, 'X', timeout=5.0)
+        reporter.log_assertion(confirmed, "Move X at (5,5) placed")
 
-        reporter.log_step(12, "End of test", "Test completed")
+        # [12] End of test
+        reporter.log_step("End of test", "Test completed", node_id=12)
         print(f"\nPATH 5 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-    def test_path_6(self, game_ui):
+    def test_path_6(self, game_ui, game_thread):
         """
         Path 6: [1,3,8,11,12]
         """
         reporter = VisualTestReporter()
 
-        reporter.log_step(1, "Start Menu", "Display title screen")
-        self.show_title_screen(game_ui, reporter)
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Display title screen", node_id=1)
+        game_ui.reset = False
+        game_thread.start()
+        reporter.wait(0.5)
         reporter.log_assertion(game_ui.state is not None, "Game initialized")
 
-        reporter.log_step(3, "Click '2 Player'", "Start 2-player mode")
-        self.click_menu_button(game_ui, '2player', reporter)
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [3] Click '2 Player'
+        reporter.log_step("Click '2 Player'", "Start 2-player mode", node_id=3)
+        self.click_title_button('2player', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "Game board ready")
         reporter.log_assertion(isinstance(game_ui.player2, UserPlayer), "Player 2 is UserPlayer")
 
-        reporter.log_step(8, "Main Game Page", "Game board ready")
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "Game board ready", node_id=8)
         reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "Board is empty")
-        reporter.wait()
+        reporter.wait(0.5)
 
-        reporter.log_step(11, "Make a move", "X at center (5,5)")
-        self.make_board_move(game_ui, 5, 5, 'X', reporter)
-        reporter.log_assertion(game_ui.state[5]['display'][5] == 'X', "Move successful")
-        reporter.log_assertion(game_ui.prev_small_idx == 5, "Previous move recorded")
+        # [11] Make a move
+        reporter.log_step("Make a move", "X at center (5,5)", node_id=11)
+        self.post_move_click(5, 5, reporter)
+        confirmed = self.wait_for_move_applied(game_ui, 5, 5, 'X', timeout=5.0)
+        reporter.log_assertion(confirmed, "Move X at (5,5) successful")
+        reporter.log_assertion(game_ui.prev_small_idx == 5, "Previous move recorded correctly")
 
-        reporter.log_step(12, "End of test", "Test completed")
+        # [12] End of test
+        reporter.log_step("End of test", "Test completed", node_id=12)
         print(f"\nPATH 6 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-    def test_path_7(self, game_ui):
+    def test_path_7(self, game_ui, game_thread):
         """
         Path 7: [1,2,4,6,7,8,10,8,10,8,11,8,9,8,11,12]
         """
         reporter = VisualTestReporter()
 
-        reporter.log_step(1, "Start Menu", "Display title screen")
-        self.show_title_screen(game_ui, reporter)
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Display title screen", node_id=1)
+        game_ui.reset = False
+        game_thread.start()
+        reporter.wait(0.5)
 
-        reporter.log_step(2, "Click '1 Player'", "Go to settings")
-        self.click_menu_button(game_ui, '1player', reporter)
-        self.show_settings_menu(game_ui, reporter)
+        # [2] Click '1 Player'
+        reporter.log_step("Click '1 Player'", "Go to settings", node_id=2)
+        self.click_title_button('1player', reporter)
+        self.wait_for_settings_screen(game_ui, reporter)
 
-        reporter.log_step(4, "Select X", "Choose player sign")
-        self.select_sign(game_ui, 'X', reporter)
+        # [4] Select X
+        reporter.log_step("Select X", "Choose player sign", node_id=4)
+        self.click_title_button('choose_x', reporter)
 
-        reporter.log_step(6, "Settings with one option", "X selected")
-        reporter.wait()
+        # [6] Settings with one option
 
-        reporter.log_step(7, "Select difficulty", "Choose Normal")
-        self.select_difficulty(game_ui, 'normal', reporter, current_sign=game_ui.selected_sign)
 
-        reporter.log_step(8, "Main Game Page", "Game started")
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = MiniMaxPlayer(target_depth=5)
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [7] Select difficulty: Normal
+        reporter.log_step("Select difficulty", "Choose Normal", node_id=7)
+        self.click_title_button('normal', reporter)
 
-        reporter.log_step(10, "Click hint 1", "Get first hint")
-        self.simulate_hint_click(game_ui, game_ui.player1, reporter)
 
-        reporter.log_step(8, "Main Game Page", "After hint 1")
-        reporter.wait()
+        selected = self.wait_for_sign_selected(game_ui, 'X', reporter)
+        reporter.log_assertion(selected, "Sign X selected")
+        reporter.log_step("Settings with one option", "X selected", node_id=6)
+        reporter.wait(0.3)
+        diff_selected = self.wait_for_difficulty_selected(game_ui, 'normal', reporter)
+        reporter.log_assertion(diff_selected, "Difficulty 'normal' selected")
 
-        reporter.log_step(10, "Click hint 2", "Get second hint")
-        self.simulate_hint_click(game_ui, game_ui.player1, reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "Game board ready")
 
-        reporter.log_step(8, "Main Game Page", "After hint 2")
-        reporter.wait()
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "Game started", node_id=8)
+        reporter.wait(0.5)
 
-        reporter.log_step(11, "Make move 1", "X at (5,5)")
-        self.make_board_move(game_ui, 5, 5, 'X', reporter)
+        # [10] Click hint 1
+        reporter.log_step("Click hint 1", "Get first hint", node_id=10)
+        self.click_game_button('hint', reporter)
+        hint_shown = self.wait_for_hint_displayed(game_ui, reporter, timeout=10.0)
+        reporter.log_assertion(hint_shown, "First hint displayed")
 
-        reporter.log_step(8, "Main Game Page", "After move 1")
-        reporter.wait()
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "After hint 1", node_id=8)
+        reporter.wait(0.5)
 
-        reporter.log_step(9, "Click reset", "Reset the game")
-        self.click_reset_button(game_ui, reporter)
-        reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "Board reset")
+        # [10] Click hint 2
+        reporter.log_step("Click hint 2", "Get second hint", node_id=10)
+        game_ui.hinted_move = None
+        self.click_game_button('hint', reporter)
+        hint_shown = self.wait_for_hint_displayed(game_ui, reporter, timeout=10.0)
+        reporter.log_assertion(hint_shown, "Second hint displayed")
 
-        reporter.log_step(8, "Main Game Page", "After reset")
-        reporter.wait()
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "After hint 2", node_id=8)
+        reporter.wait(0.5)
 
-        reporter.log_step(11, "Make move 2", "X at (1,1)")
-        self.make_board_move(game_ui, 1, 1, 'X', reporter)
+        # [11] Make move 1
+        reporter.log_step("Make move 1", "X at (5,5)", node_id=11)
+        self.post_move_click(5, 5, reporter)
+        confirmed = self.wait_for_move_applied(game_ui, 5, 5, 'X', timeout=5.0)
+        reporter.log_assertion(confirmed, "Move 1: X at (5,5) applied")
 
-        reporter.log_step(12, "End of test", "Test completed")
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "After move 1, waiting for AI", node_id=8)
+        reporter.wait(2.0)
+
+        # [9] Click reset
+        reporter.log_step("Click reset", "Reset the game", node_id=9)
+        self.click_game_button('reset', reporter)
+        reset_done = self.wait_for_reset_complete(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(reset_done, "Board reset")
+        reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "Board is empty after reset")
+
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "After reset", node_id=8)
+        reporter.wait(0.5)
+
+        # [11] Make move
+        reporter.log_step("Make move 2", "X at (1,1)", node_id=11)
+        self.post_move_click(1, 1, reporter)
+        confirmed = self.wait_for_move_applied(game_ui, 1, 1, 'X', timeout=5.0)
+        reporter.log_assertion(confirmed, "Move 2: X at (1,1) applied")
+
+        # [12] End of test
+        reporter.log_step("End of test", "Test completed", node_id=12)
         print(f"\nPATH 7 COMPLETED in {time.time() - reporter.start_time:.2f}s")
 
-    def test_path_8(self, game_ui):
+    def test_path_8(self, game_ui, game_thread):
         """
         Path 8: [1,2,4,6,4,5,1,3,8,9,8,5,1,3,8,11,12]
         """
         reporter = VisualTestReporter()
 
-        reporter.log_step(1, "Start Menu", "Display title screen")
-        self.show_title_screen(game_ui, reporter)
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Display title screen", node_id=1)
+        game_ui.reset = False
+        game_thread.start()
+        reporter.wait(0.5)
 
-        reporter.log_step(2, "Click '1 Player'", "Go to settings")
-        self.click_menu_button(game_ui, '1player', reporter)
-        self.show_settings_menu(game_ui, reporter)
+        # [2] Click '1 Player'
+        reporter.log_step("Click '1 Player'", "Go to settings", node_id=2)
+        self.click_title_button('1player', reporter)
+        self.wait_for_settings_screen(game_ui, reporter)
 
-        reporter.log_step(4, "Select X", "Choose player sign")
-        self.select_sign(game_ui, 'X', reporter)
+        # [4] Select X
+        reporter.log_step("Select X", "Choose player sign", node_id=4)
+        self.click_title_button('choose_x', reporter)
 
-        reporter.log_step(6, "Settings with one option", "X selected")
-        reporter.wait()
+        # [6] Settings with one option
+        reporter.log_step("Settings with one option", "X selected", node_id=6)
+        reporter.wait(0.3)
 
-        reporter.log_step(4, "Select O", "Choose O")
-        self.select_sign(game_ui, 'O', reporter)
-        reporter.log_assertion(game_ui.selected_sign == 'O', "Sign changed to O")
+        # [4] Select O
+        reporter.log_step("Select O", "Choose O", node_id=4)
+        self.click_title_button('choose_o', reporter)
 
-        reporter.log_step(5, "Click back", "Return to menu")
-        self.click_back_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        # [5] Click back
+        reporter.log_step("Click back", "Return to menu", node_id=5)
+        self.click_title_button('back', reporter)
+        reporter.wait(0.5)
 
-        reporter.log_step(1, "Start Menu", "Back at menu")
-        reporter.wait()
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at menu", node_id=1)
+        reporter.wait(0.5)
 
-        reporter.log_step(3, "Click '2 Player'", "Start 2-player")
-        self.click_menu_button(game_ui, '2player', reporter)
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [3] Click '2 Player'
+        reporter.log_step("Click '2 Player'", "Start 2-player", node_id=3)
+        self.click_title_button('2player', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "Game board ready")
 
-        reporter.log_step(8, "Main Game Page", "Game ready")
-        reporter.wait()
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "Game ready", node_id=8)
+        reporter.wait(0.3)
 
-        reporter.log_step(9, "Click reset", "Reset the game")
-        self.click_reset_button(game_ui, reporter)
+        # [9] Click reset
+        reporter.log_step("Click reset", "Reset the game", node_id=9)
+        self.click_game_button('reset', reporter)
+        reset_done = self.wait_for_reset_complete(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(reset_done, "Board reset")
 
-        reporter.log_step(8, "Main Game Page", "After reset")
-        reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "Board reset")
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "After reset", node_id=8)
+        reporter.log_assertion(game_ui.state[0]['display'].count('-') == 9, "Board is empty after reset")
+        reporter.wait(0.3)
 
-        reporter.log_step(5, "Click to title", "Return to menu")
-        self.click_to_title_button(game_ui, reporter)
-        self.show_title_screen(game_ui, reporter)
+        # [5] Click to title
+        reporter.log_step("Click to title", "Return to menu", node_id=5)
+        self.click_game_button('to_title', reporter)
+        reporter.wait(0.5)
 
-        reporter.log_step(1, "Start Menu", "Back at menu again")
-        reporter.wait()
+        # [1] Start Menu
+        reporter.log_step("Start Menu", "Back at menu again", node_id=1)
+        reporter.wait(0.5)
 
-        reporter.log_step(3, "Click '2 Player'", "Start 2-player again")
-        self.click_menu_button(game_ui, '2player', reporter)
-        game_ui.player1 = UserPlayer()
-        game_ui.player1.set_sign('X')
-        game_ui.player2 = UserPlayer()
-        game_ui.player2.set_sign('O')
-        self.transition_to_game(game_ui, reporter)
+        # [3] Click '2 Player' again
+        reporter.log_step("Click '2 Player'", "Start 2-player again", node_id=3)
+        self.click_title_button('2player', reporter)
+        ready = self.wait_for_game_board_ready(game_ui, reporter, timeout=5.0)
+        reporter.log_assertion(ready, "Game board ready again")
 
-        reporter.log_step(8, "Main Game Page", "Game ready again")
-        reporter.wait()
+        # [8] Main Game Page
+        reporter.log_step("Main Game Page", "Game ready again", node_id=8)
+        reporter.wait(0.3)
 
-        reporter.log_step(11, "Make a move", "X at (5,5)")
-        self.make_board_move(game_ui, 5, 5, 'X', reporter)
+        # [11] Make a move
+        reporter.log_step("Make a move", "X at (5,5)", node_id=11)
+        self.post_move_click(5, 5, reporter)
+        confirmed = self.wait_for_move_applied(game_ui, 5, 5, 'X', timeout=5.0)
+        reporter.log_assertion(confirmed, "Move X at (5,5) placed")
 
-        reporter.log_step(12, "End of test", "Test completed")
+        # [12] End of test
+        reporter.log_step("End of test", "Test completed", node_id=12)
         print(f"\nPATH 8 COMPLETED in {time.time() - reporter.start_time:.2f}s")
