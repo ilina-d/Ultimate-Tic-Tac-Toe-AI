@@ -1,9 +1,9 @@
 import time
 import pygame
-from pygments import highlight
 
 from tests.test_ui.ui_test_utils import BaseUITest, VisualTestReporter
 from utils.game.game_ui_assets import COLOR_YELLOW, COLOR_BLUE
+from utils.game.game_ui_assets import X_MARGIN, Y_MARGIN
 
 
 class TestGridHighlightingUI(BaseUITest):
@@ -21,15 +21,13 @@ class TestGridHighlightingUI(BaseUITest):
     def get_board_coords(self) -> dict:
         """Get the top-left corner coordinates for each of the 9 boards."""
 
-        from utils.game.game_ui_assets import X_MARGIN, Y_MARGIN
-
         board_size = 180
-        spacing = 10  # Space between boards
+        spacing = 10
 
         coords = {}
         for row in range(3):
             for col in range(3):
-                board_idx = row * 3 + col + 1  # Boards numbered 1-9
+                board_idx = row * 3 + col + 1
                 x = X_MARGIN + col * (board_size + spacing)
                 y = Y_MARGIN + row * (board_size + spacing)
                 coords[board_idx] = (x, y)
