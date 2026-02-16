@@ -14,7 +14,7 @@
   <a href="#implemented-algorithms">Implemented Algorithms</a> •
   <a href="#heuristic-evaluation">Heuristic Evaluation</a> •
   <a href="#results-optimizations-fun-facts">Results, Optimizations, Fun Facts</a> •
-  <a href="#testing-module">Testing Module</a>
+  <a href="#testing-module">Testing</a>
 </p>
 
 <p align="center"><img src="https://github.com/user-attachments/assets/d01573e6-af51-4808-b549-69022c58fd2e"></p>
