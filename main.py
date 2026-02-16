@@ -27,8 +27,7 @@ if __name__ == '__main__':
         printing = False,
         show_evaluation = False,
         wait_after_move = 300,
-        opaque_on_board_completion = False,
-        light_theme = False
+        opaque_on_board_completion = False
     )
 
     game.play()
